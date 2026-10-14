@@ -1,0 +1,54 @@
+<div class="auth-page">
+  <form class="card" (ngSubmit)="registrar()">
+    <h1 class="logo">Moto<strong>Go</strong></h1>
+    <p class="subtitle">Crea tu cuenta</p>
+
+    <p class="field-label">¿Qué quieres hacer?</p>
+    <div class="rol-selector">
+      <button type="button" class="rol-option"
+              [class.active]="datos.rol === Rol.ARRENDATARIO"
+              (click)="datos.rol = Rol.ARRENDATARIO">
+        <strong>Arrendatario</strong>
+        <span>Quiero alquilar una moto</span>
+      </button>
+      <button type="button" class="rol-option"
+              [class.active]="datos.rol === Rol.ARRENDADOR"
+              (click)="datos.rol = Rol.ARRENDADOR">
+        <strong>Arrendador</strong>
+        <span>Quiero poner mi moto en alquiler</span>
+      </button>
+    </div>
+
+    <div class="row">
+      <label class="field">
+        Nombre
+        <input type="text" name="nombre" [(ngModel)]="datos.nombre" />
+      </label>
+      <label class="field">
+        Apellido
+        <input type="text" name="apellido" [(ngModel)]="datos.apellido" />
+      </label>
+    </div>
+
+    <label class="field">
+      Correo
+      <input type="email" name="correo" [(ngModel)]="datos.correo" placeholder="tucorreo@ejemplo.com" />
+    </label>
+
+    <label class="field">
+      Teléfono
+      <input type="tel" name="telefono" [(ngModel)]="datos.telefono" />
+    </label>
+
+    <label class="field">
+      Contraseña
+      <input type="password" name="contrasena" [(ngModel)]="datos.contrasena" />
+    </label>
+
+    <button type="submit" class="btn btn-primary">Registrarme</button>
+
+    <p class="switch">
+      ¿Ya tienes cuenta? <a routerLink="/login">Inicia sesión</a>
+    </p>
+  </form>
+</div>

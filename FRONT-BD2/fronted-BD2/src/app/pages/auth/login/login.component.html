@@ -1,0 +1,32 @@
+<div class="auth-page">
+  <form class="card" (ngSubmit)="iniciarSesion()">
+    <h1 class="logo">Moto<strong>Go</strong></h1>
+    <p class="subtitle">Inicia sesión para continuar</p>
+
+    <label class="field">
+      Correo
+      <input type="email" name="correo" [(ngModel)]="datos.correo" placeholder="tucorreo@ejemplo.com" />
+    </label>
+
+    <label class="field">
+      Contraseña
+      <input type="password" name="contrasena" [(ngModel)]="datos.contrasena" placeholder="••••••••" />
+    </label>
+
+    <!-- TEMPORAL: quitar cuando el back devuelva el rol -->
+    <label class="field field-temp">
+      Entrar como (temporal)
+      <select name="rolTemporal" [(ngModel)]="rolTemporal">
+        @for (rol of roles; track rol) {
+          <option [value]="rol">{{ rol }}</option>
+        }
+      </select>
+    </label>
+
+    <button type="submit" class="btn btn-primary">Iniciar sesión</button>
+
+    <p class="switch">
+      ¿No tienes cuenta? <a routerLink="/registro">Regístrate</a>
+    </p>
+  </form>
+</div>

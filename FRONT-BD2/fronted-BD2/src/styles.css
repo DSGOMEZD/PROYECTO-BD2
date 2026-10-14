@@ -1,0 +1,149 @@
+/* ===== Estilos globales de MotoGo ===== */
+:root {
+  --primary: #ff6b00;
+  --primary-dark: #e05e00;
+  --dark: #1a1a1a;
+  --gray: #6b7280;
+  --border: #e5e7eb;
+  --bg: #f5f5f5;
+  --white: #ffffff;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--dark);
+}
+
+a { color: var(--primary); text-decoration: none; font-weight: 600; }
+a:hover { text-decoration: underline; }
+
+/* ----- Logo ----- */
+.logo { margin: 0; font-size: 1.8rem; font-weight: 400; }
+.logo strong { color: var(--primary); }
+
+.subtitle { color: var(--gray); margin: 4px 0 24px; }
+
+/* ----- Botones ----- */
+.btn {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: 2px solid var(--primary);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+.btn:hover { text-decoration: none; }
+.btn-primary { background: var(--primary); color: var(--white); width: 100%; margin-top: 8px; }
+.btn-primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.btn-outline { background: transparent; color: var(--primary); padding: 6px 14px; font-size: .9rem; }
+
+/* ----- Login / Registro ----- */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: linear-gradient(135deg, var(--dark) 0%, #3a3a3a 100%);
+}
+
+.card {
+  background: var(--white);
+  width: 100%;
+  max-width: 440px;
+  padding: 32px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .3);
+  text-align: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+  text-align: left;
+  font-size: .9rem;
+  font-weight: 600;
+  flex: 1;
+}
+.field input,
+.field select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-family: inherit;
+}
+.field input:focus,
+.field select:focus { outline: none; border-color: var(--primary); }
+
+.field-temp { padding: 10px; border: 1px dashed var(--primary); border-radius: var(--radius); }
+
+.field-label { text-align: left; font-size: .9rem; font-weight: 600; margin: 0 0 6px; }
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.switch { margin: 18px 0 0; font-size: .9rem; color: var(--gray); }
+
+/* Selector de rol en el registro */
+.rol-selector { display: flex; gap: 10px; margin-bottom: 18px; }
+.rol-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--white);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.rol-option span { font-size: .8rem; color: var(--gray); }
+.rol-option.active { border-color: var(--primary); background: #fff4ec; }
+
+/* ----- Navbar ----- */
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: var(--dark);
+  color: var(--white);
+}
+.navbar-right { display: flex; align-items: center; gap: 12px; }
+.badge {
+  background: var(--primary);
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+/* ----- Dashboards ----- */
+.dashboard { max-width: 1000px; margin: 0 auto; padding: 32px 16px; }
+.dashboard h1 { margin: 0; }
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.tile {
+  background: var(--white);
+  padding: 24px;
+  border-radius: var(--radius);
+  border-left: 4px solid var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+}
+.tile h3 { margin: 0 0 6px; }
+.tile p { margin: 0; color: var(--gray); font-size: .9rem; }
