@@ -1,9 +1,11 @@
 import { Rol } from './rol.model';
 
-// Representa a un usuario tal como lo devuelve la API.
-// Ajusta los campos cuando tengas definido el back.
+export type TipoDocumento = 'CC' | 'CE' | 'TI' | 'PAS';
+
+// Tabla USUARIO (sin la contraseña, que nunca viaja de vuelta al front)
 export interface Usuario {
-  id: number;
+  numeroDocumento: number;
+  tipoDocumento: TipoDocumento;
   nombre: string;
   apellido: string;
   correo: string;

@@ -1,0 +1,13 @@
+<app-navbar rol="Arrendatario" />
+
+<nav class="subnav">
+  <div class="subnav-inner">
+    @for (s of secciones; track s.ruta) {
+      <a [routerLink]="s.ruta" routerLinkActive="active">{{ s.texto }}</a>
+    }
+  </div>
+</nav>
+
+<main class="dashboard">
+  <router-outlet />
+</main>

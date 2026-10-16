@@ -1,12 +1,35 @@
-<app-navbar rol="Arrendatario" />
+<h1>Hola, arrendatario</h1>
+<p class="subtitle">Encuentra la moto ideal y sigue tus alquileres desde aquí.</p>
 
-<main class="dashboard">
-  <h1>Hola, arrendatario</h1>
-  <p class="subtitle">Encuentra la moto ideal para tu próximo viaje.</p>
-
+@if (cargando) {
+  <p class="vacio">Cargando…</p>
+} @else {
   <div class="tiles">
-    <div class="tile"><h3>Buscar motos</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Mis reservas</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Mi perfil</h3><p>Próximamente</p></div>
+    <a class="tile tile-link" routerLink="../motos">
+      <span class="tile-num">{{ motosDisponibles }}</span>
+      <h3>Motos disponibles</h3>
+      <p>Explora el catálogo y envía una solicitud.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../solicitudes">
+      <span class="tile-num">{{ solicitudesPendientes }}</span>
+      <h3>Solicitudes pendientes</h3>
+      <p>Esperando respuesta del arrendador.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../contratos">
+      <span class="tile-num">{{ contratosVigentes }}</span>
+      <h3>Contratos vigentes</h3>
+      <p>Alquileres activos en este momento.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../pagos">
+      @if (proximoPago) {
+        <span class="tile-num">{{ proximoPago.monto | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+        <h3>Próximo pago</h3>
+        <p>Vence el {{ proximoPago.fechaVencimiento | date:'longDate' }}.</p>
+      } @else {
+        <span class="tile-num">—</span>
+        <h3>Próximo pago</h3>
+        <p>No tienes pagos pendientes.</p>
+      }
+    </a>
   </div>
-</main>
+}

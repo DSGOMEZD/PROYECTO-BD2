@@ -1,0 +1,124 @@
+<h1>Motos disponibles</h1>
+<p class="subtitle">Elige una moto y envía tu solicitud de arrendamiento al dueño.</p>
+
+@if (mensajeExito) {
+  <div class="alerta alerta-ok">
+    <span>{{ mensajeExito }} <a routerLink="../solicitudes">Ver mis solicitudes</a></span>
+    <button type="button" class="alerta-cerrar" (click)="mensajeExito = ''" aria-label="Cerrar">×</button>
+  </div>
+}
+
+<div class="filtros">
+  <label class="field">
+    Buscar
+    <input type="search" [(ngModel)]="busqueda" placeholder="Marca o modelo" />
+  </label>
+  <label class="field">
+    Cilindraje
+    <select [(ngModel)]="cilindraje">
+      <option value="TODAS">Todos</option>
+      <option value="BAJO">Hasta 150 cc</option>
+      <option value="MEDIO">151 a 300 cc</option>
+      <option value="ALTO">Más de 300 cc</option>
+    </select>
+  </label>
+  <label class="field">
+    Precio máximo por día
+    <input type="number" min="0" step="10000" [(ngModel)]="precioMaximo" placeholder="Sin límite" />
+  </label>
+  <label class="field">
+    Ordenar por
+    <select [(ngModel)]="orden">
+      <option value="PRECIO_ASC">Menor precio</option>
+      <option value="PRECIO_DESC">Mayor precio</option>
+    </select>
+  </label>
+</div>
+
+@if (cargando) {
+  <p class="vacio">Cargando motos…</p>
+} @else {
+  <p class="resultados">{{ motosFiltradas.length }} de {{ motos.length }} motos</p>
+
+  <div class="motos-grid">
+    @for (moto of motosFiltradas; track moto.placa) {
+      <article class="moto-card">
+        <div class="moto-img">
+          @if (moto.imagenUrl) {
+            <img [src]="moto.imagenUrl" [alt]="moto.marca + ' ' + moto.modelo" />
+          } @else {
+            <span class="moto-img-marca">{{ moto.marca }}</span>
+          }
+          <span class="moto-cc">{{ moto.cilindraje }} cc</span>
+        </div>
+
+        <div class="moto-body">
+          <h3>{{ moto.marca }} {{ moto.modelo }}</h3>
+          <p class="moto-meta">{{ moto.anio }} · {{ moto.color }} · {{ moto.kilometraje | number }} km</p>
+          @if (moto.descripcion) {
+            <p class="moto-desc">{{ moto.descripcion }}</p>
+          }
+          <p class="moto-meta">Arrendador: {{ moto.nombreArrendador }}</p>
+
+          <div class="moto-footer">
+            <span class="precio">
+              {{ moto.precioDia | currency:'COP':'symbol-narrow':'1.0-0' }}<small>/día</small>
+            </span>
+            <button type="button" class="btn btn-sm" (click)="abrirSolicitud(moto)">Solicitar</button>
+          </div>
+        </div>
+      </article>
+    } @empty {
+      <div class="vacio">
+        <p>No hay motos que coincidan con los filtros.</p>
+        <button type="button" class="btn btn-outline" (click)="limpiarFiltros()">Limpiar filtros</button>
+      </div>
+    }
+  </div>
+}
+
+<!-- Modal: nueva solicitud de arrendamiento -->
+@if (motoSeleccionada; as moto) {
+  <div class="modal-fondo" (click)="cerrarSolicitud()">
+    <form class="modal" (click)="$event.stopPropagation()" (ngSubmit)="enviarSolicitud()">
+      <div class="modal-header">
+        <h2>Solicitar {{ moto.marca }} {{ moto.modelo }}</h2>
+        <button type="button" class="alerta-cerrar" (click)="cerrarSolicitud()" aria-label="Cerrar">×</button>
+      </div>
+      <p class="moto-meta">Placa {{ moto.placa }} · {{ moto.precioDia | currency:'COP':'symbol-narrow':'1.0-0' }} por día</p>
+
+      <div class="row">
+        <label class="field">
+          Fecha de inicio
+          <input type="date" name="fechaInicio" [min]="hoy" [(ngModel)]="solicitud.fechaInicio" required />
+        </label>
+        <label class="field">
+          Fecha de fin
+          <input type="date" name="fechaFin" [min]="solicitud.fechaInicio || hoy" [(ngModel)]="solicitud.fechaFin" required />
+        </label>
+      </div>
+
+      <label class="field">
+        Mensaje para el arrendador (opcional)
+        <textarea name="mensaje" rows="3" maxlength="300" [(ngModel)]="solicitud.mensaje"
+                  placeholder="Cuéntale para qué necesitas la moto"></textarea>
+      </label>
+
+      <div class="resumen">
+        <span>{{ dias }} {{ dias === 1 ? 'día' : 'días' }}</span>
+        <span>Total estimado: <strong>{{ totalEstimado | currency:'COP':'symbol-narrow':'1.0-0' }}</strong></span>
+      </div>
+
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+
+      <div class="modal-acciones">
+        <button type="button" class="btn btn-outline" (click)="cerrarSolicitud()">Cancelar</button>
+        <button type="submit" class="btn btn-sm" [disabled]="enviando">
+          {{ enviando ? 'Enviando…' : 'Enviar solicitud' }}
+        </button>
+      </div>
+    </form>
+  </div>
+}

@@ -20,6 +20,21 @@
     </div>
 
     <div class="row">
+      <label class="field field-tipo-doc">
+        Tipo
+        <select name="tipoDocumento" [(ngModel)]="datos.tipoDocumento">
+          @for (t of tiposDocumento; track t.valor) {
+            <option [value]="t.valor">{{ t.valor }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        Número de documento
+        <input type="number" name="numeroDocumento" [(ngModel)]="datos.numeroDocumento" />
+      </label>
+    </div>
+
+    <div class="row">
       <label class="field">
         Nombre
         <input type="text" name="nombre" [(ngModel)]="datos.nombre" />

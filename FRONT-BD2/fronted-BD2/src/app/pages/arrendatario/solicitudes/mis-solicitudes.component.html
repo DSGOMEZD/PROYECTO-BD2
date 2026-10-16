@@ -1,0 +1,61 @@
+<h1>Mis solicitudes</h1>
+<p class="subtitle">Solicitudes de arrendamiento que has enviado y su respuesta.</p>
+
+<div class="chips">
+  @for (e of estados; track e) {
+    <button type="button" class="chip" [class.active]="filtro === e" (click)="filtro = e">
+      {{ e === 'TODAS' ? 'Todas' : e.charAt(0) + e.slice(1).toLowerCase() }}
+      <span class="chip-num">{{ contar(e) }}</span>
+    </button>
+  }
+</div>
+
+@if (cargando) {
+  <p class="vacio">Cargando solicitudes…</p>
+} @else if (solicitudesFiltradas.length === 0) {
+  <div class="vacio">
+    <p>No tienes solicitudes {{ filtro === 'TODAS' ? '' : 'en este estado' }}.</p>
+    <a routerLink="../motos" class="btn btn-outline">Buscar motos</a>
+  </div>
+} @else {
+  <div class="tabla-wrap">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Moto</th>
+          <th>Periodo</th>
+          <th>Total estimado</th>
+          <th>Enviada</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (s of solicitudesFiltradas; track s.idSolicitud) {
+          <tr>
+            <td>{{ s.idSolicitud }}</td>
+            <td>
+              <strong>{{ s.moto.marca }} {{ s.moto.modelo }}</strong>
+              <div class="celda-sub">{{ s.moto.placa }}</div>
+            </td>
+            <td>
+              {{ s.fechaInicio | date:'mediumDate' }} – {{ s.fechaFin | date:'mediumDate' }}
+              <div class="celda-sub">{{ dias(s) }} días</div>
+            </td>
+            <td>{{ dias(s) * s.moto.precioDia | currency:'COP':'symbol-narrow':'1.0-0' }}</td>
+            <td>{{ s.fechaSolicitud | date:'mediumDate' }}</td>
+            <td><app-estado-badge [estado]="s.estado" /></td>
+            <td class="celda-accion">
+              @if (s.estado === 'PENDIENTE') {
+                <button type="button" class="btn btn-outline btn-peligro" (click)="cancelar(s)">Cancelar</button>
+              } @else if (s.estado === 'APROBADA') {
+                <a routerLink="../contratos" class="btn btn-outline">Ver contrato</a>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

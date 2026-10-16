@@ -147,3 +147,257 @@ a:hover { text-decoration: underline; }
 }
 .tile h3 { margin: 0 0 6px; }
 .tile p { margin: 0; color: var(--gray); font-size: .9rem; }
+
+/* ----- Botones extra ----- */
+.btn-sm { background: var(--primary); color: var(--white); padding: 8px 16px; font-size: .9rem; }
+.btn-sm:hover { background: var(--primary-dark); border-color: var(--primary-dark); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn-peligro { color: #dc2626; border-color: #dc2626; }
+
+.field textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+.field textarea:focus { outline: none; border-color: var(--primary); }
+.field-tipo-doc { flex: 0 0 90px; }
+
+/* ----- Sub-navegación del arrendatario ----- */
+.subnav { background: var(--white); border-bottom: 1px solid var(--border); }
+.subnav-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 16px;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+}
+.subnav a {
+  padding: 14px 12px;
+  color: var(--gray);
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  font-size: .95rem;
+}
+.subnav a:hover { color: var(--dark); text-decoration: none; }
+.subnav a.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* ----- Tiles con número ----- */
+.tile-link { display: block; color: inherit; font-weight: 400; transition: transform .15s, box-shadow .15s; }
+.tile-link:hover { text-decoration: none; transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0, 0, 0, .1); }
+.tile-num { display: block; font-size: 1.6rem; font-weight: 700; color: var(--primary); margin-bottom: 4px; }
+.tiles + .filtros { margin-top: 24px; }
+
+/* ----- Estados ----- */
+.estado {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.estado-ok { background: #dcfce7; color: #166534; }
+.estado-espera { background: #fef3c7; color: #92400e; }
+.estado-error { background: #fee2e2; color: #991b1b; }
+.estado-neutro { background: #e5e7eb; color: #374151; }
+
+/* ----- Alertas y mensajes ----- */
+.alerta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.alerta-ok { background: #dcfce7; color: #166534; }
+.alerta-cerrar {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+}
+.error { color: #dc2626; font-size: .9rem; margin: 0 0 10px; }
+.vacio {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--gray);
+  padding: 40px 16px;
+  background: var(--white);
+  border-radius: var(--radius);
+}
+.vacio p { margin: 0 0 12px; }
+.resultados { color: var(--gray); font-size: .9rem; margin: 0 0 12px; }
+
+/* ----- Filtros y chips ----- */
+.filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  background: var(--white);
+  padding: 16px 16px 2px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--white);
+  font-family: inherit;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.chip.active { border-color: var(--primary); background: #fff4ec; color: var(--primary); font-weight: 600; }
+.chip-num { background: var(--bg); border-radius: 999px; padding: 0 7px; font-size: .78rem; }
+
+/* ----- Catálogo de motos ----- */
+.motos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.moto-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+  display: flex;
+  flex-direction: column;
+}
+.moto-img {
+  position: relative;
+  height: 150px;
+  background: linear-gradient(135deg, var(--dark) 0%, #3a3a3a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.moto-img img { width: 100%; height: 100%; object-fit: cover; }
+.moto-img-marca { color: var(--white); font-size: 1.6rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; opacity: .85; }
+.moto-cc {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--primary);
+  color: var(--white);
+  font-size: .75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.moto-body { padding: 16px; display: flex; flex-direction: column; flex: 1; }
+.moto-body h3 { margin: 0 0 4px; }
+.moto-meta { color: var(--gray); font-size: .85rem; margin: 0 0 8px; }
+.moto-desc { font-size: .9rem; margin: 0 0 8px; }
+.moto-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+.precio { font-size: 1.15rem; font-weight: 700; }
+.precio small { font-size: .8rem; font-weight: 400; color: var(--gray); }
+
+/* ----- Modal ----- */
+.modal-fondo {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 100;
+}
+.modal {
+  background: var(--white);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .3);
+}
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.modal-header h2 { margin: 0 0 4px; font-size: 1.25rem; }
+.modal-acciones { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.resumen {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #fff4ec;
+  padding: 12px;
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  font-size: .95rem;
+}
+
+/* ----- Tablas ----- */
+.tabla-wrap {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+  overflow-x: auto;
+}
+.tabla { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.tabla th, .tabla td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tabla th { background: #fafafa; font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; color: var(--gray); white-space: nowrap; }
+.tabla tbody tr:last-child td { border-bottom: none; }
+.tabla tbody tr:hover { background: #fafafa; }
+.celda-sub { color: var(--gray); font-size: .8rem; }
+.celda-accion { text-align: right; white-space: nowrap; }
+
+/* ----- Contratos ----- */
+.contratos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.contrato-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  border-top: 4px solid var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .06);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.contrato-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.contrato-header h3 { margin: 2px 0 0; }
+.datos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 0; }
+.datos dt { color: var(--gray); font-size: .78rem; }
+.datos dd { margin: 0; font-weight: 600; font-size: .92rem; }
+.progreso-texto { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: 6px; }
+.progreso-barra { height: 8px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+.progreso-barra span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
+.contrato-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+@media (max-width: 480px) {
+  .contratos-grid { grid-template-columns: 1fr; }
+  .rol-selector { flex-direction: column; }
+}

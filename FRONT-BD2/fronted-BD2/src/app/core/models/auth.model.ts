@@ -1,5 +1,5 @@
 import { Rol } from './rol.model';
-import { Usuario } from './usuario.model';
+import { TipoDocumento, Usuario } from './usuario.model';
 
 // Lo que el front ENVÍA al back para iniciar sesión
 export interface LoginRequest {
@@ -15,6 +15,8 @@ export interface LoginResponse {
 
 // Lo que el front ENVÍA al back para registrar un usuario
 export interface RegistroRequest {
+  tipoDocumento: TipoDocumento;
+  numeroDocumento: number | null;
   nombre: string;
   apellido: string;
   correo: string;

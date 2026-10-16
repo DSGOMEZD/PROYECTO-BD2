@@ -1,0 +1,58 @@
+<h1>Mis contratos</h1>
+<p class="subtitle">Contratos generados a partir de tus solicitudes aprobadas.</p>
+
+<div class="chips">
+  <button type="button" class="chip" [class.active]="soloVigentes" (click)="soloVigentes = true">Vigentes</button>
+  <button type="button" class="chip" [class.active]="!soloVigentes" (click)="soloVigentes = false">Todos</button>
+</div>
+
+@if (cargando) {
+  <p class="vacio">Cargando contratos…</p>
+} @else {
+  <div class="contratos-grid">
+    @for (c of contratosFiltrados; track c.idContrato) {
+      <article class="contrato-card">
+        <div class="contrato-header">
+          <div>
+            <span class="celda-sub">Contrato #{{ c.idContrato }}</span>
+            <h3>{{ c.moto.marca }} {{ c.moto.modelo }}</h3>
+          </div>
+          <app-estado-badge [estado]="c.estado" />
+        </div>
+
+        <dl class="datos">
+          <div><dt>Placa</dt><dd>{{ c.moto.placa }}</dd></div>
+          <div><dt>Arrendador</dt><dd>{{ c.nombreArrendador }}</dd></div>
+          <div><dt>Inicio</dt><dd>{{ c.fechaInicio | date:'mediumDate' }}</dd></div>
+          <div><dt>Fin</dt><dd>{{ c.fechaFin | date:'mediumDate' }}</dd></div>
+          <div><dt>Valor total</dt><dd>{{ c.valorTotal | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+          <div><dt>Depósito</dt><dd>{{ c.deposito | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+        </dl>
+
+        <div class="progreso">
+          <div class="progreso-texto">
+            <span>Pagado {{ totalPagado(c) | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+            <span>{{ porcentajePagado(c) }}%</span>
+          </div>
+          <div class="progreso-barra"><span [style.width.%]="porcentajePagado(c)"></span></div>
+        </div>
+
+        <div class="contrato-footer">
+          <span class="celda-sub">
+            @if (c.estado === 'VIGENTE') {
+              Quedan {{ diasRestantes(c) }} días · Firmado {{ c.fechaFirma | date:'mediumDate' }}
+            } @else {
+              Firmado {{ c.fechaFirma | date:'mediumDate' }}
+            }
+          </span>
+          <a [routerLink]="'../pagos'" [queryParams]="{ contrato: c.idContrato }" class="btn btn-outline">Ver pagos</a>
+        </div>
+      </article>
+    } @empty {
+      <div class="vacio">
+        <p>No tienes contratos {{ soloVigentes ? 'vigentes' : '' }}.</p>
+        <a routerLink="../solicitudes" class="btn btn-outline">Ver mis solicitudes</a>
+      </div>
+    }
+  </div>
+}
