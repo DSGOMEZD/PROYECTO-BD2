@@ -397,6 +397,56 @@ a:hover { text-decoration: underline; }
   padding-top: 12px;
 }
 
+/* ----- Arrendador ----- */
+.encabezado { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.encabezado .btn { margin-top: 6px; }
+.seccion-titulo { font-size: 1.15rem; margin: 32px 0 12px; }
+.alerta-aviso { background: #fef3c7; color: #92400e; }
+.acciones { display: inline-flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.celda-mensaje { color: var(--gray); font-size: .8rem; font-style: italic; margin-top: 4px; max-width: 240px; }
+.moto-estado { position: absolute; top: 10px; left: 10px; }
+.seguro-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: #f0fdf4;
+  margin-bottom: 8px;
+  font-size: .9rem;
+}
+.seguro-box.seguro-mal { background: #fef2f2; }
+.seguro-linea { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.moto-acciones { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 10px; }
+.btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-link:hover { text-decoration: underline; }
+.btn-link-peligro { color: #dc2626; }
+.modal-lg { max-width: 640px; }
+.form-seccion {
+  font-size: .8rem;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--gray);
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.field input[readonly] { background: var(--bg); color: var(--gray); }
+.mayus { text-transform: uppercase; }
+.datos-modal { background: var(--bg); padding: 12px; border-radius: var(--radius); margin: 12px 0 16px; }
+.cuotas { list-style: none; padding: 0; margin: 0 0 14px; font-size: .9rem; }
+.cuotas li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.cuotas li:last-child { border-bottom: none; }
+
 @media (max-width: 480px) {
   .contratos-grid { grid-template-columns: 1fr; }
   .rol-selector { flex-direction: column; }

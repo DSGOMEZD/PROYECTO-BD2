@@ -7,7 +7,21 @@ export function diasEntre(inicio: string, fin: string): number {
 
 // Fecha de hoy en formato YYYY-MM-DD (hora local)
 export function hoyISO(): string {
-  const d = new Date();
+  return aISO(new Date());
+}
+
+// Suma meses a una fecha YYYY-MM-DD
+export function sumarMeses(fecha: string, meses: number): string {
+  const [y, m, d] = fecha.split('-').map(Number);
+  return aISO(new Date(y, m - 1 + meses, d));
+}
+
+// true si los periodos [inicioA, finA] y [inicioB, finB] tienen algún día en común
+export function periodosSeCruzan(inicioA: string, finA: string, inicioB: string, finB: string): boolean {
+  return inicioA <= finB && inicioB <= finA;
+}
+
+function aISO(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${mm}-${dd}`;

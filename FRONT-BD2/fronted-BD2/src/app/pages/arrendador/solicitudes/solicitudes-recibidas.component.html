@@ -1,0 +1,134 @@
+<h1>Solicitudes recibidas</h1>
+<p class="subtitle">Arrendatarios que quieren alquilar tus motos. Al aprobar una se genera el contrato.</p>
+
+@if (mensajeExito) {
+  <div class="alerta alerta-ok">
+    <span>{{ mensajeExito }} <a routerLink="../contratos">Ver contratos</a></span>
+    <button type="button" class="alerta-cerrar" (click)="mensajeExito = ''" aria-label="Cerrar">×</button>
+  </div>
+}
+
+<div class="chips">
+  @for (e of estados; track e) {
+    <button type="button" class="chip" [class.active]="filtro === e" (click)="filtro = e">
+      {{ e === 'TODAS' ? 'Todas' : e.charAt(0) + e.slice(1).toLowerCase() }}
+      <span class="chip-num">{{ contar(e) }}</span>
+    </button>
+  }
+</div>
+
+@if (cargando) {
+  <p class="vacio">Cargando solicitudes…</p>
+} @else if (solicitudesFiltradas.length === 0) {
+  <p class="vacio">No tienes solicitudes {{ filtro === 'TODAS' ? '' : 'en este estado' }}.</p>
+} @else {
+  <div class="tabla-wrap">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Arrendatario</th>
+          <th>Moto</th>
+          <th>Periodo</th>
+          <th>Total</th>
+          <th>Recibida</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (s of solicitudesFiltradas; track s.idSolicitud) {
+          <tr>
+            <td>{{ s.idSolicitud }}</td>
+            <td>
+              <strong>{{ s.nombreArrendatario }}</strong>
+              <div class="celda-sub">Doc. {{ s.documentoArrendatario }}</div>
+              @if (s.mensaje) {
+                <div class="celda-mensaje">“{{ s.mensaje }}”</div>
+              }
+            </td>
+            <td>
+              <strong>{{ s.moto.marca }} {{ s.moto.modelo }}</strong>
+              <div class="celda-sub">{{ s.moto.placa }}</div>
+            </td>
+            <td>
+              {{ s.fechaInicio | date:'mediumDate' }} – {{ s.fechaFin | date:'mediumDate' }}
+              <div class="celda-sub">{{ dias(s) }} días</div>
+            </td>
+            <td>{{ total(s) | currency:'COP':'symbol-narrow':'1.0-0' }}</td>
+            <td>{{ s.fechaSolicitud | date:'mediumDate' }}</td>
+            <td><app-estado-badge [estado]="s.estado" /></td>
+            <td class="celda-accion">
+              @if (s.estado === 'PENDIENTE') {
+                <div class="acciones">
+                  <button type="button" class="btn btn-sm" (click)="abrirAprobar(s)">Aprobar</button>
+                  <button type="button" class="btn btn-outline btn-peligro" (click)="rechazar(s)">Rechazar</button>
+                </div>
+              } @else if (s.fechaRespuesta) {
+                <span class="celda-sub">Respondida {{ s.fechaRespuesta | date:'mediumDate' }}</span>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
+
+<!-- Modal: aprobar solicitud y generar el contrato -->
+@if (aprobando; as s) {
+  <div class="modal-fondo" (click)="cerrarAprobar()">
+    <form class="modal" (click)="$event.stopPropagation()" (ngSubmit)="confirmarAprobar()">
+      <div class="modal-header">
+        <h2>Aprobar solicitud #{{ s.idSolicitud }}</h2>
+        <button type="button" class="alerta-cerrar" (click)="cerrarAprobar()" aria-label="Cerrar">×</button>
+      </div>
+      <p class="moto-meta">{{ s.nombreArrendatario }} · {{ s.moto.marca }} {{ s.moto.modelo }} ({{ s.moto.placa }})</p>
+
+      <dl class="datos datos-modal">
+        <div><dt>Inicio</dt><dd>{{ s.fechaInicio | date:'mediumDate' }}</dd></div>
+        <div><dt>Fin</dt><dd>{{ s.fechaFin | date:'mediumDate' }}</dd></div>
+        <div><dt>Días</dt><dd>{{ dias(s) }}</dd></div>
+        <div><dt>Valor total</dt><dd>{{ total(s) | currency:'COP':'symbol-narrow':'1.0-0' }}</dd></div>
+      </dl>
+
+      <label class="field">
+        Depósito de garantía
+        <input type="number" name="deposito" min="0" step="10000" [(ngModel)]="deposito" />
+      </label>
+
+      <p class="field-label">Plan de pagos ({{ cuotas.length }} {{ cuotas.length === 1 ? 'cuota' : 'cuotas' }})</p>
+      <ul class="cuotas">
+        @for (c of cuotas; track c.fechaVencimiento; let i = $index) {
+          <li>
+            <span>Cuota {{ i + 1 }} · vence {{ c.fechaVencimiento | date:'mediumDate' }}</span>
+            <strong>{{ c.monto | currency:'COP':'symbol-narrow':'1.0-0' }}</strong>
+          </li>
+        }
+      </ul>
+
+      @if (enConflicto(s).length) {
+        <div class="alerta alerta-aviso">
+          <span>
+            Se rechazarán automáticamente {{ enConflicto(s).length }} solicitud(es) pendiente(s) de esta moto
+            que se cruzan en fechas:
+            @for (o of enConflicto(s); track o.idSolicitud) {
+              <strong>{{ o.nombreArrendatario }}</strong>{{ $last ? '.' : ', ' }}
+            }
+          </span>
+        </div>
+      }
+
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+
+      <div class="modal-acciones">
+        <button type="button" class="btn btn-outline" (click)="cerrarAprobar()">Cancelar</button>
+        <button type="submit" class="btn btn-sm" [disabled]="enviando">
+          {{ enviando ? 'Aprobando…' : 'Aprobar y generar contrato' }}
+        </button>
+      </div>
+    </form>
+  </div>
+}

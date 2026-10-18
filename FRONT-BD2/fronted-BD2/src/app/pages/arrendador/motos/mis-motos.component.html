@@ -1,0 +1,182 @@
+<div class="encabezado">
+  <div>
+    <h1>Mis motos</h1>
+    <p class="subtitle">Motos que tienes publicadas para alquilar, con su seguro.</p>
+  </div>
+  <button type="button" class="btn btn-sm" (click)="abrirPublicar()">+ Publicar moto</button>
+</div>
+
+@if (mensajeExito) {
+  <div class="alerta alerta-ok">
+    <span>{{ mensajeExito }}</span>
+    <button type="button" class="alerta-cerrar" (click)="mensajeExito = ''" aria-label="Cerrar">×</button>
+  </div>
+}
+
+<div class="chips">
+  @for (e of estados; track e) {
+    <button type="button" class="chip" [class.active]="filtro === e" (click)="filtro = e">
+      {{ textoEstado(e) }}
+      <span class="chip-num">{{ contar(e) }}</span>
+    </button>
+  }
+</div>
+
+@if (cargando) {
+  <p class="vacio">Cargando motos…</p>
+} @else {
+  <div class="motos-grid">
+    @for (moto of motosFiltradas; track moto.placa) {
+      <article class="moto-card">
+        <div class="moto-img">
+          @if (moto.imagenUrl) {
+            <img [src]="moto.imagenUrl" [alt]="moto.marca + ' ' + moto.modelo" />
+          } @else {
+            <span class="moto-img-marca">{{ moto.marca }}</span>
+          }
+          <span class="moto-cc">{{ moto.cilindraje }} cc</span>
+          <span class="moto-estado"><app-estado-badge [estado]="moto.estado" /></span>
+        </div>
+
+        <div class="moto-body">
+          <h3>{{ moto.marca }} {{ moto.modelo }}</h3>
+          <p class="moto-meta">{{ moto.placa }} · {{ moto.anio }} · {{ moto.color }} · {{ moto.kilometraje | number }} km</p>
+
+          <div class="seguro-box" [class.seguro-mal]="moto.seguro?.estadoPoliza !== 'VIGENTE'">
+            @if (moto.seguro; as s) {
+              <div class="seguro-linea">
+                <strong>{{ s.aseguradora }}</strong>
+                <app-estado-badge [estado]="s.estadoPoliza" />
+              </div>
+              <span class="celda-sub">Póliza {{ s.numeroPoliza }} · desde {{ s.fechaInicioVigencia | date:'mediumDate' }}</span>
+            } @else {
+              <strong>Sin seguro registrado</strong>
+            }
+          </div>
+
+          <div class="moto-footer">
+            <span class="precio">
+              {{ moto.precioDia | currency:'COP':'symbol-narrow':'1.0-0' }}<small>/día</small>
+            </span>
+            <button type="button" class="btn btn-outline" (click)="abrirEditar(moto)">Editar</button>
+          </div>
+
+          <div class="moto-acciones">
+            @switch (moto.estado) {
+              @case ('ARRENDADA') {
+                <span class="celda-sub">En alquiler: no se puede cambiar de estado.</span>
+              }
+              @case ('DISPONIBLE') {
+                <button type="button" class="btn-link" (click)="cambiarEstado(moto, 'MANTENIMIENTO')">Pasar a mantenimiento</button>
+                <button type="button" class="btn-link btn-link-peligro" (click)="cambiarEstado(moto, 'INACTIVA')">Desactivar</button>
+              }
+              @default {
+                <button type="button" class="btn-link" (click)="cambiarEstado(moto, 'DISPONIBLE')">Marcar como disponible</button>
+              }
+            }
+          </div>
+        </div>
+      </article>
+    } @empty {
+      <div class="vacio">
+        <p>No tienes motos {{ filtro === 'TODAS' ? 'publicadas' : 'en este estado' }}.</p>
+        <button type="button" class="btn btn-outline" (click)="abrirPublicar()">Publicar moto</button>
+      </div>
+    }
+  </div>
+}
+
+<!-- Modal: publicar / editar moto con su seguro -->
+@if (formAbierto) {
+  <div class="modal-fondo" (click)="cerrarForm()">
+    <form class="modal modal-lg" (click)="$event.stopPropagation()" (ngSubmit)="guardar()">
+      <div class="modal-header">
+        <h2>{{ placaEditando ? 'Editar ' + form.marca + ' ' + form.modelo : 'Publicar una moto' }}</h2>
+        <button type="button" class="alerta-cerrar" (click)="cerrarForm()" aria-label="Cerrar">×</button>
+      </div>
+
+      <h3 class="form-seccion">Datos de la moto</h3>
+      <div class="row">
+        <label class="field">
+          Placa
+          <input name="placa" maxlength="10" placeholder="ABC12D" [(ngModel)]="form.placa"
+                 [readonly]="!!placaEditando" class="mayus" required />
+        </label>
+        <label class="field">
+          Marca
+          <input name="marca" maxlength="50" placeholder="Yamaha" [(ngModel)]="form.marca" required />
+        </label>
+        <label class="field">
+          Modelo
+          <input name="modelo" maxlength="50" placeholder="MT-03" [(ngModel)]="form.modelo" required />
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">
+          Año
+          <input type="number" name="anio" min="1980" [max]="anioMaximo" [(ngModel)]="form.anio" required />
+        </label>
+        <label class="field">
+          Cilindraje (cc)
+          <input type="number" name="cilindraje" min="1" step="any" [(ngModel)]="form.cilindraje" required />
+        </label>
+        <label class="field">
+          Color
+          <input name="color" maxlength="30" placeholder="Negro" [(ngModel)]="form.color" />
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">
+          Kilometraje actual
+          <input type="number" name="kilometraje" min="0" step="1" [(ngModel)]="form.kilometraje" required />
+        </label>
+        <label class="field">
+          Precio de alquiler por día
+          <input type="number" name="precioDia" min="1" step="1000" [(ngModel)]="form.precioDia" required />
+        </label>
+      </div>
+      <label class="field">
+        Descripción (opcional)
+        <textarea name="descripcion" rows="2" maxlength="200" [(ngModel)]="form.descripcion"
+                  placeholder="Lo que hace especial a tu moto"></textarea>
+      </label>
+
+      <h3 class="form-seccion">Seguro (póliza)</h3>
+      <div class="row">
+        <label class="field">
+          Aseguradora
+          <input name="aseguradora" maxlength="50" placeholder="Sura" [(ngModel)]="form.seguro.aseguradora" required />
+        </label>
+        <label class="field">
+          Número de póliza
+          <input type="number" name="numeroPoliza" min="1" step="1" [(ngModel)]="form.seguro.numeroPoliza" required />
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">
+          Inicio de vigencia
+          <input type="date" name="fechaInicioVigencia" [(ngModel)]="form.seguro.fechaInicioVigencia" required />
+        </label>
+        <label class="field">
+          Estado de la póliza
+          <select name="estadoPoliza" [(ngModel)]="form.seguro.estadoPoliza">
+            @for (e of estadosPoliza; track e) {
+              <option [value]="e">{{ textoEstado(e) }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      @if (error) {
+        <p class="error">{{ error }}</p>
+      }
+
+      <div class="modal-acciones">
+        <button type="button" class="btn btn-outline" (click)="cerrarForm()">Cancelar</button>
+        <button type="submit" class="btn btn-sm" [disabled]="guardando">
+          {{ guardando ? 'Guardando…' : (placaEditando ? 'Guardar cambios' : 'Publicar moto') }}
+        </button>
+      </div>
+    </form>
+  </div>
+}

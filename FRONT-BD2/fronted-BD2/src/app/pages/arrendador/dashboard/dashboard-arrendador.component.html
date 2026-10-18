@@ -1,12 +1,77 @@
-<app-navbar rol="Arrendador" />
+<h1>Hola, arrendador</h1>
+<p class="subtitle">Administra tus motos, responde solicitudes y sigue tus ingresos.</p>
 
-<main class="dashboard">
-  <h1>Hola, arrendador</h1>
-  <p class="subtitle">Administra tus motos y tus alquileres.</p>
+@if (cargando) {
+  <p class="vacio">Cargando…</p>
+} @else {
+  @if (motosSinSeguro.length) {
+    <div class="alerta alerta-aviso">
+      <span>
+        {{ motosSinSeguro.length === 1 ? 'Una moto tiene' : motosSinSeguro.length + ' motos tienen' }}
+        el seguro sin vigencia:
+        @for (m of motosSinSeguro; track m.placa) {
+          <strong>{{ m.placa }}</strong>{{ $last ? '.' : ', ' }}
+        }
+        <a routerLink="../motos">Actualizar póliza</a>
+      </span>
+    </div>
+  }
 
   <div class="tiles">
-    <div class="tile"><h3>Mis motos</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Solicitudes de alquiler</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Ganancias</h3><p>Próximamente</p></div>
+    <a class="tile tile-link" routerLink="../motos">
+      <span class="tile-num">{{ totalMotos }}</span>
+      <h3>Motos publicadas</h3>
+      <p>{{ motosDisponibles }} disponibles para alquilar.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../solicitudes">
+      <span class="tile-num">{{ pendientes.length }}</span>
+      <h3>Solicitudes por responder</h3>
+      <p>Aprueba o rechaza las que te llegaron.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../contratos">
+      <span class="tile-num">{{ contratosVigentes }}</span>
+      <h3>Contratos vigentes</h3>
+      <p>Motos alquiladas en este momento.</p>
+    </a>
+    <a class="tile tile-link" routerLink="../pagos">
+      <span class="tile-num">{{ totalRecibido | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+      <h3>Ingresos recibidos</h3>
+      <p>{{ porCobrar | currency:'COP':'symbol-narrow':'1.0-0' }} por cobrar.</p>
+    </a>
   </div>
-</main>
+
+  <h2 class="seccion-titulo">Solicitudes pendientes</h2>
+  @if (pendientes.length === 0) {
+    <p class="vacio">No tienes solicitudes por responder.</p>
+  } @else {
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Arrendatario</th>
+            <th>Moto</th>
+            <th>Periodo</th>
+            <th>Total</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (s of pendientes.slice(0, 5); track s.idSolicitud) {
+            <tr>
+              <td>{{ s.nombreArrendatario }}</td>
+              <td>
+                <strong>{{ s.moto.marca }} {{ s.moto.modelo }}</strong>
+                <div class="celda-sub">{{ s.moto.placa }}</div>
+              </td>
+              <td>{{ s.fechaInicio | date:'mediumDate' }} – {{ s.fechaFin | date:'mediumDate' }}</td>
+              <td>{{ total(s) | currency:'COP':'symbol-narrow':'1.0-0' }}</td>
+              <td class="celda-accion">
+                <a routerLink="../solicitudes" class="btn btn-outline">Responder</a>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

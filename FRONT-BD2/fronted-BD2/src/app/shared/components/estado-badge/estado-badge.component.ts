@@ -1,6 +1,6 @@
 import { Component, Input } from '@angular/core';
 
-// Etiqueta de color para los estados de motos, solicitudes, contratos y pagos
+// Etiqueta de color para los estados de motos, seguros, solicitudes, contratos y pagos
 @Component({
   selector: 'app-estado-badge',
   standalone: true,
@@ -21,12 +21,14 @@ export class EstadoBadgeComponent {
       case 'PAGADO':
         return 'ok';
       case 'PENDIENTE':
+      case 'MANTENIMIENTO':
         return 'espera';
       case 'RECHAZADA':
       case 'VENCIDO':
+      case 'VENCIDA':
         return 'error';
       default:
-        return 'neutro'; // CANCELADA, FINALIZADO, ARRENDADA, etc.
+        return 'neutro'; // CANCELADA, FINALIZADO, ARRENDADA, INACTIVA, etc.
     }
   }
 }

@@ -1,0 +1,86 @@
+<h1>Pagos</h1>
+<p class="subtitle">Pagos que los arrendatarios han hecho (o deben) por tus contratos.</p>
+
+@if (cargando) {
+  <p class="vacio">Cargando pagos…</p>
+} @else {
+  <div class="tiles">
+    <div class="tile">
+      <span class="tile-num">{{ totalRecibido | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+      <h3>Total recibido</h3>
+    </div>
+    <div class="tile">
+      <span class="tile-num">{{ totalPorCobrar | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
+      <h3>Por cobrar</h3>
+      @if (vencidos) {
+        <p>{{ vencidos }} {{ vencidos === 1 ? 'pago vencido' : 'pagos vencidos' }}.</p>
+      }
+    </div>
+  </div>
+
+  <div class="filtros">
+    <label class="field">
+      Contrato
+      <select [(ngModel)]="contratoFiltro">
+        <option value="TODOS">Todos los contratos</option>
+        @for (c of contratos; track c.idContrato) {
+          <option [ngValue]="c.idContrato">#{{ c.idContrato }} · {{ c.moto.marca }} {{ c.moto.modelo }} · {{ c.nombreArrendatario }}</option>
+        }
+      </select>
+    </label>
+    <label class="field">
+      Estado
+      <select [(ngModel)]="estadoFiltro">
+        <option value="TODOS">Todos</option>
+        @for (e of estados; track e) {
+          <option [value]="e">{{ e.charAt(0) + e.slice(1).toLowerCase() }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
+  @if (pagosFiltrados.length === 0) {
+    <p class="vacio">No hay pagos con estos filtros.</p>
+  } @else {
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Contrato</th>
+            <th>Arrendatario</th>
+            <th>Monto</th>
+            <th>Vence</th>
+            <th>Pagado el</th>
+            <th>Método</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of pagosFiltrados; track p.idPago) {
+            <tr>
+              <td>{{ p.idPago }}</td>
+              <td>
+                @if (contrato(p.idContrato); as c) {
+                  <strong>{{ c.moto.marca }} {{ c.moto.modelo }}</strong>
+                }
+                <div class="celda-sub">Contrato #{{ p.idContrato }}</div>
+              </td>
+              <td>{{ contrato(p.idContrato)?.nombreArrendatario ?? '—' }}</td>
+              <td>{{ p.monto | currency:'COP':'symbol-narrow':'1.0-0' }}</td>
+              <td>{{ p.fechaVencimiento | date:'mediumDate' }}</td>
+              <td>{{ p.fechaPago ? (p.fechaPago | date:'mediumDate') : '—' }}</td>
+              <td>
+                {{ p.metodoPago ?? '—' }}
+                @if (p.referencia) {
+                  <div class="celda-sub">{{ p.referencia }}</div>
+                }
+              </td>
+              <td><app-estado-badge [estado]="p.estado" /></td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

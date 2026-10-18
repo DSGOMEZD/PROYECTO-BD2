@@ -2,7 +2,7 @@ import { Motocicleta } from './motocicleta.model';
 
 export type EstadoContrato = 'VIGENTE' | 'FINALIZADO' | 'CANCELADO';
 
-// Tabla CONTRATO (+ datos de la moto y del arrendador)
+// Tabla CONTRATO (+ datos de la moto, del arrendador y del arrendatario)
 export interface Contrato {
   idContrato: number;
   fechaFirma: string;
@@ -13,6 +13,7 @@ export interface Contrato {
   estado: EstadoContrato;
   idSolicitud: number;
   documentoArrendatario: number;
+  nombreArrendatario: string;
   documentoArrendador: number;
   nombreArrendador: string;
   moto: Pick<Motocicleta, 'placa' | 'marca' | 'modelo'>;
