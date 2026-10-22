@@ -3,13 +3,11 @@
 --
 -- Contenido:
 --   0. Catalogos de estados y codigos de error (excepciones)
---   1. Tabla auxiliar de auditoria
---   2. Procedimientos de validacion y auditoria (usados por triggers)
---   3. Funciones
---   4. Triggers
---   5. Procedimientos de negocio (con transacciones, excepciones y cursores)
---   6. Evento programado (opcional)
---   7. Ejemplos de uso para el backend
+--   1. Funciones        (8)
+--   2. Triggers         (10)
+--   3. Procedimientos   (10, tres de ellos con cursores)
+--   4. Evento programado (opcional)
+--   5. Ejemplos de uso para el backend
 --
 -- Requisitos:
 --   - Ejecutar DESPUES del script de creacion de tablas.
@@ -24,8 +22,6 @@
 --     otra transaccion abierta, porque START TRANSACTION la confirmaria.
 --   - La contrasena llega ya hasheada desde el backend (bcrypt/argon2).
 --     La base de datos nunca hashea ni compara contrasenas.
---   - Para auditoria, el backend puede ejecutar antes de cada CALL:
---       SET @usuario_app = <numero_documento del usuario logueado>;
 -- ================================================================
 
 
@@ -45,11 +41,19 @@
 --                               | POR_DEFINIR (solo mientras el pago esta pendiente)
 --
 -- Transiciones permitidas (las hacen cumplir los triggers):
---   SOLICITUD: PENDIENTE -> APROBADA | RECHAZADA | CANCELADA
 --   CONTRATO : PENDIENTE -> VIGENTE | CANCELADO
 --              VIGENTE   -> FINALIZADO | CANCELADO
 --   PAGO     : PENDIENTE -> PAGADO | VENCIDO | CANCELADO
 --              VENCIDO   -> PAGADO | CANCELADO
+--
+-- Cascadas automaticas (triggers):
+--   USUARIO pasa a INACTIVO/BLOQUEADO -> sus solicitudes PENDIENTES se cancelan
+--   SOLICITUD RECHAZADA/CANCELADA     -> su contrato PENDIENTE se cancela
+--   CONTRATO CANCELADO                -> sus pagos PENDIENTES/VENCIDOS se cancelan
+--   CONTRATO FINALIZADO               -> la moto ARRENDADA vuelve a DISPONIBLE
+--   SEGURO deja de estar VIGENTE      -> la moto DISPONIBLE pasa a INACTIVA
+--   PAGO pasa a PAGADO                -> fecha_pago se fija en la fecha actual
+--   Nuevo INFO_MANTENIMIENTO          -> se actualiza el kilometraje de la moto
 --
 -- Por que existe el contrato PENDIENTE:
 --   SOLICITUD.id_contrato y CONTRATO.Id_solicitud son FK obligatorias
@@ -57,187 +61,29 @@
 --   contrato ni al reves. Por eso sp_crear_solicitud crea las dos filas
 --   juntas: la solicitud PENDIENTE y su contrato PENDIENTE (que guarda las
 --   fechas pedidas). Al aprobar, el contrato pasa a VIGENTE; al rechazar o
---   cancelar, pasa a CANCELADO.
+--   cancelar la solicitud, el trigger pasa el contrato a CANCELADO.
 --
 -- Codigos de error propios (SIGNAL SQLSTATE '45000', MYSQL_ERRNO):
---   45001 Usuario inexistente o inactivo
---   45002 Rol invalido o no modificable
---   45003 Tipo de documento invalido
---   45004 Datos de usuario invalidos (correo, telefono, nombres)
---   45005 Correo ya registrado
---   45006 Numero de documento ya registrado
---   45007 Estado invalido
---   45010 Motocicleta inexistente
---   45011 Placa duplicada
---   45012 Datos de motocicleta invalidos
---   45013 El kilometraje no puede disminuir
---   45014 Motocicleta no disponible
---   45015 Seguro no vigente
---   45016 Datos de seguro invalidos o duplicados
---   45020 Solicitud inexistente
---   45021 Transicion de solicitud invalida
---   45022 Fechas invalidas
---   45023 Un usuario no puede alquilar su propia motocicleta
---   45024 Solicitud duplicada
---   45025 Operacion no autorizada para este usuario
---   45026 Inconsistencia en llaves / llaves no modificables
---   45030 Contrato inexistente
---   45031 Transicion o estado de contrato invalido
---   45032 Contrato con saldo pendiente
---   45033 El contrato ya inicio y no puede cancelarse
---   45040 Pago inexistente
---   45041 Transicion de pago invalida
---   45042 Monto o metodo de pago invalido
---   45050 Datos de mantenimiento invalidos
+--   45001 Datos invalidos
+--   45002 Usuario inexistente o inactivo
+--   45003 Registro duplicado
+--   45004 Registro no encontrado
+--   45005 Motocicleta no disponible
+--   45006 Fechas invalidas
+--   45007 Operacion no autorizada para este usuario
+--   45008 Transicion o estado invalido
+--   45009 Contrato con saldo pendiente
+--   45010 Llaves inconsistentes
 --
 -- El backend puede leer MYSQL_ERRNO (ej. SQLException.getErrorCode() en
 -- Java, err.errno en Node) y traducirlo a un HTTP 400/403/404/409.
 -- ================================================================
 
 
--- ================================================================
--- 1. TABLA AUXILIAR DE AUDITORIA
--- ================================================================
-
-CREATE TABLE IF NOT EXISTS `AUDITORIA_ESTADOS` (
-    `Id_auditoria`    INT NOT NULL AUTO_INCREMENT COMMENT 'Identificador del registro de auditoria.',
-    `Tabla`           VARCHAR(30) NOT NULL COMMENT 'Tabla en la que cambio el estado.',
-    `Llave_registro`  VARCHAR(100) NOT NULL COMMENT 'Llave del registro modificado.',
-    `Estado_anterior` VARCHAR(20) NULL COMMENT 'Estado antes del cambio.',
-    `Estado_nuevo`    VARCHAR(20) NOT NULL COMMENT 'Estado despues del cambio.',
-    `Fecha_cambio`    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Momento del cambio.',
-    `Usuario_bd`      VARCHAR(100) NOT NULL COMMENT 'Usuario de conexion a MySQL.',
-    `Usuario_app`     INT NULL COMMENT 'Documento del usuario de la aplicacion (@usuario_app).',
-    CONSTRAINT `AUDITORIA_ESTADOS_PK` PRIMARY KEY (`Id_auditoria`),
-    KEY `AUDITORIA_ESTADOS_REGISTRO_IX` (`Tabla`, `Llave_registro`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-
 DELIMITER $$
 
 -- ================================================================
--- 2. PROCEDIMIENTOS DE VALIDACION Y AUDITORIA (usados por triggers)
--- ================================================================
-
--- Registra un cambio de estado. Solo inserta si el estado realmente cambio.
-DROP PROCEDURE IF EXISTS `sp_auditar_estado`$$
-CREATE PROCEDURE `sp_auditar_estado`(
-    IN p_tabla    VARCHAR(30),
-    IN p_llave    VARCHAR(100),
-    IN p_anterior VARCHAR(20),
-    IN p_nuevo    VARCHAR(20)
-)
-BEGIN
-    IF NOT (p_anterior <=> p_nuevo) THEN
-        INSERT INTO `AUDITORIA_ESTADOS`
-            (`Tabla`, `Llave_registro`, `Estado_anterior`, `Estado_nuevo`, `Usuario_bd`, `Usuario_app`)
-        VALUES
-            (p_tabla, p_llave, p_anterior, p_nuevo, USER(), @usuario_app);
-    END IF;
-END$$
-
--- Reglas de USUARIO compartidas por los triggers de INSERT y UPDATE.
-DROP PROCEDURE IF EXISTS `sp_validar_datos_usuario`$$
-CREATE PROCEDURE `sp_validar_datos_usuario`(
-    IN p_tipo_documento   CHAR(20),
-    IN p_numero_documento INT,
-    IN p_primer_nombre    CHAR(50),
-    IN p_primer_apellido  CHAR(50),
-    IN p_telefono         INT,
-    IN p_correo           CHAR(50),
-    IN p_contrasena       VARCHAR(255),
-    IN p_estado           CHAR(20),
-    IN p_rol              CHAR(20)
-)
-BEGIN
-    IF p_tipo_documento NOT IN ('CC', 'CE', 'TI', 'PAS') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Tipo de documento invalido (CC, CE, TI, PAS).', MYSQL_ERRNO = 45003;
-    END IF;
-
-    IF p_numero_documento <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El numero de documento debe ser positivo.', MYSQL_ERRNO = 45004;
-    END IF;
-
-    IF TRIM(p_primer_nombre) = '' OR TRIM(p_primer_apellido) = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El primer nombre y el primer apellido son obligatorios.', MYSQL_ERRNO = 45004;
-    END IF;
-
-    IF p_telefono <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El telefono debe ser un numero positivo.', MYSQL_ERRNO = 45004;
-    END IF;
-
-    IF p_correo NOT REGEXP '^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El correo no tiene un formato valido.', MYSQL_ERRNO = 45004;
-    END IF;
-
-    IF TRIM(p_contrasena) = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La contrasena (hash) es obligatoria.', MYSQL_ERRNO = 45004;
-    END IF;
-
-    IF p_estado NOT IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de usuario invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF p_rol NOT IN ('ADMIN', 'ARRENDADOR', 'ARRENDATARIO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rol invalido (ADMIN, ARRENDADOR, ARRENDATARIO).', MYSQL_ERRNO = 45002;
-    END IF;
-END$$
-
--- Reglas de MOTOCICLETA compartidas por los triggers de INSERT y UPDATE.
-DROP PROCEDURE IF EXISTS `sp_validar_datos_motocicleta`$$
-CREATE PROCEDURE `sp_validar_datos_motocicleta`(
-    IN p_placa       CHAR(10),
-    IN p_marca       CHAR(50),
-    IN p_modelo      CHAR(50),
-    IN p_anio        INT,
-    IN p_cilindraje  DECIMAL(10,2),
-    IN p_kilometraje INT,
-    IN p_precio      INT,
-    IN p_estado      CHAR(20)
-)
-BEGIN
-    IF TRIM(p_placa) = '' OR TRIM(p_marca) = '' OR TRIM(p_modelo) = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Placa, marca y modelo son obligatorios.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    IF p_anio < 1950 OR p_anio > YEAR(CURDATE()) + 1 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El anio de la motocicleta esta fuera de rango.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    IF p_cilindraje <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El cilindraje debe ser mayor que cero.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    IF p_kilometraje < 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El kilometraje no puede ser negativo.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    IF p_precio <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El precio de alquiler debe ser mayor que cero.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    IF p_estado NOT IN ('DISPONIBLE', 'ARRENDADA', 'MANTENIMIENTO', 'INACTIVA') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de motocicleta invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-END$$
-
-
--- ================================================================
--- 3. FUNCIONES
+-- 1. FUNCIONES
 -- ================================================================
 
 -- 1 si el usuario existe y esta ACTIVO, 0 en otro caso.
@@ -281,7 +127,7 @@ NO SQL
 BEGIN
     IF p_fecha_inicio IS NULL OR p_fecha_fin IS NULL OR p_fecha_fin < p_fecha_inicio THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45022;
+            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45006;
     END IF;
 
     RETURN GREATEST(DATEDIFF(p_fecha_fin, p_fecha_inicio), 1);
@@ -309,7 +155,7 @@ BEGIN
 
     IF v_precio IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no existe.', MYSQL_ERRNO = 45010;
+            SET MESSAGE_TEXT = 'La motocicleta no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     RETURN v_precio * fn_dias_alquiler(p_fecha_inicio, p_fecha_fin);
@@ -421,11 +267,10 @@ END$$
 
 
 -- ================================================================
--- 4. TRIGGERS
+-- 2. TRIGGERS
 -- ================================================================
 
--- ---------------- USUARIO ----------------
-
+-- 1) Normaliza y valida los datos de un usuario nuevo.
 DROP TRIGGER IF EXISTS `trg_usuario_bi`$$
 CREATE TRIGGER `trg_usuario_bi`
 BEFORE INSERT ON `USUARIO`
@@ -436,122 +281,71 @@ BEGIN
     SET NEW.`Estado`         = UPPER(TRIM(NEW.`Estado`));
     SET NEW.`Rol_usuario`    = UPPER(TRIM(NEW.`Rol_usuario`));
 
-    CALL sp_validar_datos_usuario(
-        NEW.`Tipo_documento`, NEW.`Numero_documento`, NEW.`Primer_nombre`,
-        NEW.`Primer_apellido`, NEW.`Telefono`, NEW.`Correo`, NEW.`Contraseña`,
-        NEW.`Estado`, NEW.`Rol_usuario`);
+    IF NEW.`Tipo_documento` NOT IN ('CC', 'CE', 'TI', 'PAS') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Tipo de documento invalido (CC, CE, TI, PAS).', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Numero_documento` <= 0 OR NEW.`Telefono` <= 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Documento y telefono deben ser numeros positivos.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF TRIM(NEW.`Primer_nombre`) = '' OR TRIM(NEW.`Primer_apellido`) = '' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El primer nombre y el primer apellido son obligatorios.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Correo` NOT REGEXP '^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El correo no tiene un formato valido.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Estado` NOT IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO')
+       OR NEW.`Rol_usuario` NOT IN ('ADMIN', 'ARRENDADOR', 'ARRENDATARIO') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Estado o rol de usuario invalido.', MYSQL_ERRNO = 45001;
+    END IF;
 
     IF EXISTS (SELECT 1 FROM `USUARIO` WHERE `Correo` = NEW.`Correo`) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El correo ya esta registrado.', MYSQL_ERRNO = 45005;
+            SET MESSAGE_TEXT = 'El correo ya esta registrado.', MYSQL_ERRNO = 45003;
     END IF;
 END$$
 
-DROP TRIGGER IF EXISTS `trg_usuario_bu`$$
-CREATE TRIGGER `trg_usuario_bu`
-BEFORE UPDATE ON `USUARIO`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Correo`         = LOWER(TRIM(NEW.`Correo`));
-    SET NEW.`Tipo_documento` = UPPER(TRIM(NEW.`Tipo_documento`));
-    SET NEW.`Estado`         = UPPER(TRIM(NEW.`Estado`));
-    SET NEW.`Rol_usuario`    = UPPER(TRIM(NEW.`Rol_usuario`));
-
-    IF NEW.`Numero_documento` <> OLD.`Numero_documento` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El numero de documento no se puede modificar.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    -- El rol esta atado a la tabla de subtipo (ADMINISTRADOR/ARRENDADOR/ARRENDATARIO).
-    IF NEW.`Rol_usuario` <> OLD.`Rol_usuario` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El rol de un usuario no se puede modificar.', MYSQL_ERRNO = 45002;
-    END IF;
-
-    CALL sp_validar_datos_usuario(
-        NEW.`Tipo_documento`, NEW.`Numero_documento`, NEW.`Primer_nombre`,
-        NEW.`Primer_apellido`, NEW.`Telefono`, NEW.`Correo`, NEW.`Contraseña`,
-        NEW.`Estado`, NEW.`Rol_usuario`);
-
-    IF EXISTS (SELECT 1 FROM `USUARIO`
-                WHERE `Correo` = NEW.`Correo`
-                  AND `Numero_documento` <> OLD.`Numero_documento`) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El correo ya esta registrado.', MYSQL_ERRNO = 45005;
-    END IF;
-END$$
-
+-- 2) Si un usuario queda INACTIVO o BLOQUEADO, se cancelan sus solicitudes
+--    PENDIENTES, tanto las que hizo como arrendatario como las que recibio
+--    como arrendador. (trg_solicitud_au cancela despues sus contratos.)
 DROP TRIGGER IF EXISTS `trg_usuario_au`$$
 CREATE TRIGGER `trg_usuario_au`
 AFTER UPDATE ON `USUARIO`
 FOR EACH ROW
 BEGIN
-    CALL sp_auditar_estado('USUARIO', CAST(NEW.`Numero_documento` AS CHAR),
-                           OLD.`Estado`, NEW.`Estado`);
+    IF NEW.`Estado` IN ('INACTIVO', 'BLOQUEADO') AND OLD.`Estado` = 'ACTIVO' THEN
+        UPDATE `SOLICITUD`
+           SET `Estado_solicitud` = 'CANCELADA'
+         WHERE `Estado_solicitud` = 'PENDIENTE'
+           AND (`Numero_documento` = NEW.`Numero_documento`
+                OR `Numero_documento2` = NEW.`Numero_documento`);
+    END IF;
 END$$
 
--- ---------------- SEGURO ----------------
-
-DROP TRIGGER IF EXISTS `trg_seguro_bi`$$
-CREATE TRIGGER `trg_seguro_bi`
-BEFORE INSERT ON `SEGURO`
+-- 3) Si la poliza deja de estar VIGENTE, la moto que la usa y estaba
+--    DISPONIBLE pasa a INACTIVA (una moto arrendada termina su contrato).
+DROP TRIGGER IF EXISTS `trg_seguro_au`$$
+CREATE TRIGGER `trg_seguro_au`
+AFTER UPDATE ON `SEGURO`
 FOR EACH ROW
 BEGIN
-    SET NEW.`Estado_poliza` = UPPER(TRIM(NEW.`Estado_poliza`));
-    SET NEW.`Aseguradora`   = TRIM(NEW.`Aseguradora`);
-
-    IF NEW.`Estado_poliza` NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de poliza invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF NEW.`numero_poliza` <= 0 OR NEW.`Aseguradora` = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Numero de poliza y aseguradora son obligatorios.', MYSQL_ERRNO = 45016;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM `SEGURO`
-                WHERE `Aseguradora` = NEW.`Aseguradora`
-                  AND `numero_poliza` = NEW.`numero_poliza`) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45016;
+    IF OLD.`Estado_poliza` = 'VIGENTE' AND NEW.`Estado_poliza` <> 'VIGENTE' THEN
+        UPDATE `MOTOCICLETA`
+           SET `Estado_motocicleta` = 'INACTIVA'
+         WHERE `Id_seguro` = NEW.`Id_seguro`
+           AND `Estado_motocicleta` = 'DISPONIBLE';
     END IF;
 END$$
 
-DROP TRIGGER IF EXISTS `trg_seguro_bu`$$
-CREATE TRIGGER `trg_seguro_bu`
-BEFORE UPDATE ON `SEGURO`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Estado_poliza` = UPPER(TRIM(NEW.`Estado_poliza`));
-    SET NEW.`Aseguradora`   = TRIM(NEW.`Aseguradora`);
-
-    IF NEW.`Id_seguro` <> OLD.`Id_seguro` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El id del seguro no se puede modificar.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    IF NEW.`Estado_poliza` NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de poliza invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF NEW.`numero_poliza` <= 0 OR NEW.`Aseguradora` = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Numero de poliza y aseguradora son obligatorios.', MYSQL_ERRNO = 45016;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM `SEGURO`
-                WHERE `Aseguradora` = NEW.`Aseguradora`
-                  AND `numero_poliza` = NEW.`numero_poliza`
-                  AND `Id_seguro` <> OLD.`Id_seguro`) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45016;
-    END IF;
-END$$
-
--- ---------------- MOTOCICLETA ----------------
-
+-- 4) Normaliza y valida una motocicleta nueva; placa y seguro unicos.
 DROP TRIGGER IF EXISTS `trg_motocicleta_bi`$$
 CREATE TRIGGER `trg_motocicleta_bi`
 BEFORE INSERT ON `MOTOCICLETA`
@@ -560,277 +354,147 @@ BEGIN
     SET NEW.`Placa`              = UPPER(TRIM(NEW.`Placa`));
     SET NEW.`Estado_motocicleta` = UPPER(TRIM(NEW.`Estado_motocicleta`));
 
-    CALL sp_validar_datos_motocicleta(
-        NEW.`Placa`, NEW.`Marca`, NEW.`modelo`, NEW.`Año`, NEW.`Cilindraje`,
-        NEW.`Kilometraje_actual`, NEW.`Precio_alquiler`, NEW.`Estado_motocicleta`);
+    IF NEW.`Placa` = '' OR TRIM(NEW.`Marca`) = '' OR TRIM(NEW.`modelo`) = '' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Placa, marca y modelo son obligatorios.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Año` < 1950 OR NEW.`Año` > YEAR(CURDATE()) + 1 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El anio de la motocicleta esta fuera de rango.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Cilindraje` <= 0 OR NEW.`Precio_alquiler` <= 0 OR NEW.`Kilometraje_actual` < 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Cilindraje, precio o kilometraje invalidos.', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF NEW.`Estado_motocicleta` NOT IN ('DISPONIBLE', 'ARRENDADA', 'MANTENIMIENTO', 'INACTIVA') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Estado de motocicleta invalido.', MYSQL_ERRNO = 45001;
+    END IF;
 
     -- La PK es (Placa, Numero_documento), pero una placa identifica una sola moto.
     IF EXISTS (SELECT 1 FROM `MOTOCICLETA` WHERE `Placa` = NEW.`Placa`) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Ya existe una motocicleta con esa placa.', MYSQL_ERRNO = 45011;
+            SET MESSAGE_TEXT = 'Ya existe una motocicleta con esa placa.', MYSQL_ERRNO = 45003;
     END IF;
 
     -- Cada poliza cubre una sola motocicleta.
     IF EXISTS (SELECT 1 FROM `MOTOCICLETA` WHERE `Id_seguro` = NEW.`Id_seguro`) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El seguro ya esta asociado a otra motocicleta.', MYSQL_ERRNO = 45016;
+            SET MESSAGE_TEXT = 'El seguro ya esta asociado a otra motocicleta.', MYSQL_ERRNO = 45003;
     END IF;
 END$$
 
-DROP TRIGGER IF EXISTS `trg_motocicleta_bu`$$
-CREATE TRIGGER `trg_motocicleta_bu`
-BEFORE UPDATE ON `MOTOCICLETA`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Estado_motocicleta` = UPPER(TRIM(NEW.`Estado_motocicleta`));
-
-    IF NEW.`Placa` <> OLD.`Placa` OR NEW.`Numero_documento` <> OLD.`Numero_documento` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La placa y el propietario no se pueden modificar.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    CALL sp_validar_datos_motocicleta(
-        NEW.`Placa`, NEW.`Marca`, NEW.`modelo`, NEW.`Año`, NEW.`Cilindraje`,
-        NEW.`Kilometraje_actual`, NEW.`Precio_alquiler`, NEW.`Estado_motocicleta`);
-
-    IF NEW.`Kilometraje_actual` < OLD.`Kilometraje_actual` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El kilometraje no puede disminuir.', MYSQL_ERRNO = 45013;
-    END IF;
-
-    IF NEW.`Id_seguro` <> OLD.`Id_seguro`
-       AND EXISTS (SELECT 1 FROM `MOTOCICLETA` WHERE `Id_seguro` = NEW.`Id_seguro`) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El seguro ya esta asociado a otra motocicleta.', MYSQL_ERRNO = 45016;
-    END IF;
-END$$
-
-DROP TRIGGER IF EXISTS `trg_motocicleta_au`$$
-CREATE TRIGGER `trg_motocicleta_au`
-AFTER UPDATE ON `MOTOCICLETA`
-FOR EACH ROW
-BEGIN
-    CALL sp_auditar_estado('MOTOCICLETA', NEW.`Placa`,
-                           OLD.`Estado_motocicleta`, NEW.`Estado_motocicleta`);
-END$$
-
--- ---------------- SOLICITUD ----------------
-
+-- 5) Completa la fecha de la solicitud y verifica las columnas redundantes.
 DROP TRIGGER IF EXISTS `trg_solicitud_bi`$$
 CREATE TRIGGER `trg_solicitud_bi`
 BEFORE INSERT ON `SOLICITUD`
 FOR EACH ROW
 BEGIN
-    SET NEW.`Estado_solicitud` = UPPER(TRIM(NEW.`Estado_solicitud`));
-    SET NEW.`Placa`            = UPPER(TRIM(NEW.`Placa`));
-
-    IF NEW.`Estado_solicitud` <> 'PENDIENTE' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Una solicitud nueva debe crearse en estado PENDIENTE.', MYSQL_ERRNO = 45021;
-    END IF;
+    SET NEW.`Fecha_solicitud`   = CURDATE();
+    SET NEW.`Estado_solicitud`  = 'PENDIENTE';
+    SET NEW.`Placa`             = UPPER(TRIM(NEW.`Placa`));
+    SET NEW.`Mensaje_solicitud` = IFNULL(NEW.`Mensaje_solicitud`, '');
 
     -- Columnas redundantes heredadas del modelo:
-    --   Numero_documento   = arrendatario   = Numero_documento1  (lado CONTRATO)
-    --   Numero_documento2  = arrendador     = Numero_documento11 (lado CONTRATO)
+    --   Numero_documento  = arrendatario = Numero_documento1  (lado CONTRATO)
+    --   Numero_documento2 = arrendador   = Numero_documento11 (lado CONTRATO)
     IF NEW.`Numero_documento1` <> NEW.`Numero_documento`
        OR NEW.`Numero_documento11` <> NEW.`Numero_documento2` THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Documentos de la solicitud y del contrato no coinciden.', MYSQL_ERRNO = 45026;
+            SET MESSAGE_TEXT = 'Documentos de la solicitud y del contrato no coinciden.', MYSQL_ERRNO = 45010;
     END IF;
 
     IF NEW.`Numero_documento` = NEW.`Numero_documento2` THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45023;
+            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45007;
     END IF;
 END$$
 
-DROP TRIGGER IF EXISTS `trg_solicitud_bu`$$
-CREATE TRIGGER `trg_solicitud_bu`
-BEFORE UPDATE ON `SOLICITUD`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Estado_solicitud` = UPPER(TRIM(NEW.`Estado_solicitud`));
-
-    IF NEW.`Id_solicitud` <> OLD.`Id_solicitud`
-       OR NEW.`Numero_documento` <> OLD.`Numero_documento`
-       OR NEW.`Placa` <> OLD.`Placa`
-       OR NEW.`Numero_documento2` <> OLD.`Numero_documento2`
-       OR NEW.`id_contrato` <> OLD.`id_contrato`
-       OR NEW.`Numero_documento1` <> OLD.`Numero_documento1`
-       OR NEW.`Numero_documento11` <> OLD.`Numero_documento11` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Las llaves de la solicitud no se pueden modificar.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    IF NEW.`Estado_solicitud` NOT IN ('PENDIENTE', 'APROBADA', 'RECHAZADA', 'CANCELADA') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de solicitud invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF NEW.`Estado_solicitud` <> OLD.`Estado_solicitud`
-       AND OLD.`Estado_solicitud` <> 'PENDIENTE' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo una solicitud PENDIENTE puede cambiar de estado.', MYSQL_ERRNO = 45021;
-    END IF;
-END$$
-
+-- 6) Si una solicitud se RECHAZA o se CANCELA, su contrato PENDIENTE
+--    se cancela automaticamente.
 DROP TRIGGER IF EXISTS `trg_solicitud_au`$$
 CREATE TRIGGER `trg_solicitud_au`
 AFTER UPDATE ON `SOLICITUD`
 FOR EACH ROW
 BEGIN
-    CALL sp_auditar_estado('SOLICITUD', CAST(NEW.`Id_solicitud` AS CHAR),
-                           OLD.`Estado_solicitud`, NEW.`Estado_solicitud`);
-END$$
-
--- ---------------- CONTRATO ----------------
-
-DROP TRIGGER IF EXISTS `trg_contrato_bi`$$
-CREATE TRIGGER `trg_contrato_bi`
-BEFORE INSERT ON `CONTRATO`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Estado_contrato` = UPPER(TRIM(NEW.`Estado_contrato`));
-    SET NEW.`Placa`           = UPPER(TRIM(NEW.`Placa`));
-
-    IF NEW.`Estado_contrato` <> 'PENDIENTE' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un contrato nuevo debe crearse en estado PENDIENTE.', MYSQL_ERRNO = 45031;
-    END IF;
-
-    -- Columnas redundantes heredadas del modelo:
-    --   Numero_documento  = arrendatario = Numero_documento2  (lado SOLICITUD)
-    --   Numero_documento1 = arrendador   = Numero_documento21 (lado SOLICITUD)
-    IF NEW.`Numero_documento2` <> NEW.`Numero_documento`
-       OR NEW.`Numero_documento21` <> NEW.`Numero_documento1` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Documentos del contrato y de la solicitud no coinciden.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    IF NEW.`Numero_documento` = NEW.`Numero_documento1` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45023;
-    END IF;
-
-    IF NEW.`Fecha_fin` < NEW.`Fecha_inicio` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La fecha de fin no puede ser anterior a la de inicio.', MYSQL_ERRNO = 45022;
+    IF NEW.`Estado_solicitud` IN ('RECHAZADA', 'CANCELADA')
+       AND OLD.`Estado_solicitud` = 'PENDIENTE' THEN
+        UPDATE `CONTRATO`
+           SET `Estado_contrato` = 'CANCELADO'
+         WHERE `id_contrato` = NEW.`id_contrato`
+           AND `Numero_documento` = NEW.`Numero_documento1`
+           AND `Numero_documento1` = NEW.`Numero_documento11`
+           AND `Estado_contrato` = 'PENDIENTE';
     END IF;
 END$$
 
+-- 7) Controla las transiciones de estado y las fechas del contrato.
 DROP TRIGGER IF EXISTS `trg_contrato_bu`$$
 CREATE TRIGGER `trg_contrato_bu`
 BEFORE UPDATE ON `CONTRATO`
 FOR EACH ROW
 BEGIN
-    SET NEW.`Estado_contrato` = UPPER(TRIM(NEW.`Estado_contrato`));
-
-    IF NEW.`id_contrato` <> OLD.`id_contrato`
-       OR NEW.`Numero_documento` <> OLD.`Numero_documento`
-       OR NEW.`Numero_documento1` <> OLD.`Numero_documento1`
-       OR NEW.`Id_solicitud` <> OLD.`Id_solicitud`
-       OR NEW.`Numero_documento2` <> OLD.`Numero_documento2`
-       OR NEW.`Placa` <> OLD.`Placa`
-       OR NEW.`Numero_documento21` <> OLD.`Numero_documento21` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Las llaves del contrato no se pueden modificar.', MYSQL_ERRNO = 45026;
-    END IF;
-
-    IF NEW.`Estado_contrato` NOT IN ('PENDIENTE', 'VIGENTE', 'FINALIZADO', 'CANCELADO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de contrato invalido.', MYSQL_ERRNO = 45007;
-    END IF;
-
     IF NEW.`Estado_contrato` <> OLD.`Estado_contrato` AND NOT (
            (OLD.`Estado_contrato` = 'PENDIENTE' AND NEW.`Estado_contrato` IN ('VIGENTE', 'CANCELADO'))
         OR (OLD.`Estado_contrato` = 'VIGENTE'   AND NEW.`Estado_contrato` IN ('FINALIZADO', 'CANCELADO'))
        ) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Transicion de estado de contrato no permitida.', MYSQL_ERRNO = 45031;
+            SET MESSAGE_TEXT = 'Transicion de estado de contrato no permitida.', MYSQL_ERRNO = 45008;
     END IF;
 
-    -- Las fechas solo se pueden cambiar mientras el contrato esta PENDIENTE.
     IF (NEW.`Fecha_inicio` <> OLD.`Fecha_inicio` OR NEW.`Fecha_fin` <> OLD.`Fecha_fin`)
        AND OLD.`Estado_contrato` <> 'PENDIENTE' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Las fechas solo se modifican en contratos PENDIENTES.', MYSQL_ERRNO = 45031;
+            SET MESSAGE_TEXT = 'Las fechas solo se modifican en contratos PENDIENTES.', MYSQL_ERRNO = 45008;
     END IF;
 
     IF NEW.`Fecha_fin` < NEW.`Fecha_inicio` THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La fecha de fin no puede ser anterior a la de inicio.', MYSQL_ERRNO = 45022;
+            SET MESSAGE_TEXT = 'La fecha de fin no puede ser anterior a la de inicio.', MYSQL_ERRNO = 45006;
     END IF;
 END$$
 
+-- 8) Efectos de cerrar un contrato:
+--    CANCELADO  -> sus pagos PENDIENTES o VENCIDOS se cancelan.
+--    FINALIZADO -> la moto ARRENDADA vuelve a DISPONIBLE.
 DROP TRIGGER IF EXISTS `trg_contrato_au`$$
 CREATE TRIGGER `trg_contrato_au`
 AFTER UPDATE ON `CONTRATO`
 FOR EACH ROW
 BEGIN
-    CALL sp_auditar_estado('CONTRATO', CAST(NEW.`id_contrato` AS CHAR),
-                           OLD.`Estado_contrato`, NEW.`Estado_contrato`);
-END$$
-
--- ---------------- PAGO ----------------
-
-DROP TRIGGER IF EXISTS `trg_pago_bi`$$
-CREATE TRIGGER `trg_pago_bi`
-BEFORE INSERT ON `PAGO`
-FOR EACH ROW
-BEGIN
-    SET NEW.`Estado`      = UPPER(TRIM(NEW.`Estado`));
-    SET NEW.`Metodo_pago` = UPPER(TRIM(NEW.`Metodo_pago`));
-
-    IF NEW.`Estado` NOT IN ('PENDIENTE', 'PAGADO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un pago nuevo debe ser PENDIENTE o PAGADO.', MYSQL_ERRNO = 45041;
-    END IF;
-
-    IF NEW.`Monto` <= 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El monto del pago debe ser mayor que cero.', MYSQL_ERRNO = 45042;
-    END IF;
-
-    IF NEW.`Metodo_pago` NOT IN ('EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'PSE', 'NEQUI', 'POR_DEFINIR')
-       OR (NEW.`Estado` = 'PAGADO' AND NEW.`Metodo_pago` = 'POR_DEFINIR') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Metodo de pago invalido.', MYSQL_ERRNO = 45042;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM `CONTRATO`
-                    WHERE `id_contrato` = NEW.`id_contrato`
-                      AND `Numero_documento` = NEW.`Numero_documento`
-                      AND `Numero_documento1` = NEW.`Numero_documento1`
-                      AND `Estado_contrato` = 'VIGENTE') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se registran pagos de contratos VIGENTES.', MYSQL_ERRNO = 45031;
+    IF NEW.`Estado_contrato` <> OLD.`Estado_contrato` THEN
+        IF NEW.`Estado_contrato` = 'CANCELADO' THEN
+            UPDATE `PAGO`
+               SET `Estado` = 'CANCELADO'
+             WHERE `id_contrato` = NEW.`id_contrato`
+               AND `Numero_documento` = NEW.`Numero_documento`
+               AND `Numero_documento1` = NEW.`Numero_documento1`
+               AND `Estado` IN ('PENDIENTE', 'VENCIDO');
+        ELSEIF NEW.`Estado_contrato` = 'FINALIZADO' THEN
+            UPDATE `MOTOCICLETA`
+               SET `Estado_motocicleta` = 'DISPONIBLE'
+             WHERE `Placa` = NEW.`Placa`
+               AND `Numero_documento` = NEW.`Numero_documento21`
+               AND `Estado_motocicleta` = 'ARRENDADA';
+        END IF;
     END IF;
 END$$
 
+-- 9) Controla las transiciones del pago y, al quedar PAGADO, fija
+--    automaticamente la fecha de pago.
 DROP TRIGGER IF EXISTS `trg_pago_bu`$$
 CREATE TRIGGER `trg_pago_bu`
 BEFORE UPDATE ON `PAGO`
 FOR EACH ROW
 BEGIN
-    SET NEW.`Estado`      = UPPER(TRIM(NEW.`Estado`));
     SET NEW.`Metodo_pago` = UPPER(TRIM(NEW.`Metodo_pago`));
-
-    IF NEW.`Id_pago` <> OLD.`Id_pago`
-       OR NEW.`id_contrato` <> OLD.`id_contrato`
-       OR NEW.`Numero_documento` <> OLD.`Numero_documento`
-       OR NEW.`Numero_documento1` <> OLD.`Numero_documento1` THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Las llaves del pago no se pueden modificar.', MYSQL_ERRNO = 45026;
-    END IF;
 
     IF NEW.`Monto` <> OLD.`Monto` THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El monto de un pago no se puede modificar.', MYSQL_ERRNO = 45042;
-    END IF;
-
-    IF NEW.`Estado` NOT IN ('PENDIENTE', 'PAGADO', 'VENCIDO', 'CANCELADO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de pago invalido.', MYSQL_ERRNO = 45007;
+            SET MESSAGE_TEXT = 'El monto de un pago no se puede modificar.', MYSQL_ERRNO = 45001;
     END IF;
 
     IF NEW.`Estado` <> OLD.`Estado` AND NOT (
@@ -838,49 +502,20 @@ BEGIN
         OR (OLD.`Estado` = 'VENCIDO'   AND NEW.`Estado` IN ('PAGADO', 'CANCELADO'))
        ) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Transicion de estado de pago no permitida.', MYSQL_ERRNO = 45041;
+            SET MESSAGE_TEXT = 'Transicion de estado de pago no permitida.', MYSQL_ERRNO = 45008;
     END IF;
 
-    IF NEW.`Metodo_pago` NOT IN ('EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'PSE', 'NEQUI', 'POR_DEFINIR')
-       OR (NEW.`Estado` = 'PAGADO' AND NEW.`Metodo_pago` = 'POR_DEFINIR') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Metodo de pago invalido.', MYSQL_ERRNO = 45042;
-    END IF;
-END$$
-
-DROP TRIGGER IF EXISTS `trg_pago_au`$$
-CREATE TRIGGER `trg_pago_au`
-AFTER UPDATE ON `PAGO`
-FOR EACH ROW
-BEGIN
-    CALL sp_auditar_estado('PAGO', CAST(NEW.`Id_pago` AS CHAR),
-                           OLD.`Estado`, NEW.`Estado`);
-END$$
-
--- ---------------- INFO_MANTENIMIENTO ----------------
-
-DROP TRIGGER IF EXISTS `trg_mantenimiento_bi`$$
-CREATE TRIGGER `trg_mantenimiento_bi`
-BEFORE INSERT ON `INFO_MANTENIMIENTO`
-FOR EACH ROW
-BEGIN
-    IF NEW.`Kilometraje_al_momento` < 0 OR NEW.`Costo` < 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Kilometraje y costo no pueden ser negativos.', MYSQL_ERRNO = 45050;
-    END IF;
-
-    IF NEW.`Fecha_mantenimiento` > CURDATE() THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La fecha del mantenimiento no puede ser futura.', MYSQL_ERRNO = 45050;
-    END IF;
-
-    IF TRIM(NEW.`Tipo_mantenimiento`) = '' OR TRIM(NEW.`Descripcion_mantenimiento`) = '' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Tipo y descripcion del mantenimiento son obligatorios.', MYSQL_ERRNO = 45050;
+    IF NEW.`Estado` = 'PAGADO' AND OLD.`Estado` <> 'PAGADO' THEN
+        IF NEW.`Metodo_pago` NOT IN ('EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'PSE', 'NEQUI') THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Metodo de pago invalido.', MYSQL_ERRNO = 45001;
+        END IF;
+        SET NEW.`fecha_pago` = CURDATE();
     END IF;
 END$$
 
--- Mantiene actualizado el kilometraje de la moto (nunca lo disminuye).
+-- 10) Al registrar un mantenimiento se actualiza el kilometraje de la moto
+--     (nunca lo disminuye).
 DROP TRIGGER IF EXISTS `trg_mantenimiento_ai`$$
 CREATE TRIGGER `trg_mantenimiento_ai`
 AFTER INSERT ON `INFO_MANTENIMIENTO`
@@ -894,16 +529,14 @@ END$$
 
 
 -- ================================================================
--- 5. PROCEDIMIENTOS DE NEGOCIO
+-- 3. PROCEDIMIENTOS
 -- ================================================================
--- Patron de excepciones usado en todos:
+-- Patron de excepciones usado en todos los que escriben:
 --   DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 -- Cualquier error (de un SIGNAL propio, de un trigger o del motor) deshace
 -- la transaccion y se re-lanza al backend con su mensaje y MYSQL_ERRNO.
 
--- ---------------- USUARIOS ----------------
-
--- Registra el usuario y su fila de subtipo segun el rol, en una transaccion.
+-- 1) Registra el usuario y su fila de subtipo segun el rol.
 DROP PROCEDURE IF EXISTS `sp_registrar_usuario`$$
 CREATE PROCEDURE `sp_registrar_usuario`(
     IN p_tipo_documento   CHAR(20),
@@ -926,7 +559,7 @@ BEGIN
     BEGIN
         ROLLBACK;
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Ya existe un usuario con ese numero de documento.', MYSQL_ERRNO = 45006;
+            SET MESSAGE_TEXT = 'Ya existe un usuario con ese numero de documento.', MYSQL_ERRNO = 45003;
     END;
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
@@ -939,7 +572,12 @@ BEGIN
 
     IF v_rol IS NULL OR v_rol NOT IN ('ADMIN', 'ARRENDADOR', 'ARRENDATARIO') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rol invalido (ADMIN, ARRENDADOR, ARRENDATARIO).', MYSQL_ERRNO = 45002;
+            SET MESSAGE_TEXT = 'Rol invalido (ADMIN, ARRENDADOR, ARRENDATARIO).', MYSQL_ERRNO = 45001;
+    END IF;
+
+    IF p_contrasena_hash IS NULL OR TRIM(p_contrasena_hash) = '' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La contrasena (hash) es obligatoria.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
@@ -965,23 +603,8 @@ BEGIN
     COMMIT;
 END$$
 
--- Devuelve los datos para el login. El backend compara el hash.
--- Devuelve 0 filas si el correo no existe: el backend debe responder el
--- mismo mensaje generico que para una contrasena incorrecta.
-DROP PROCEDURE IF EXISTS `sp_obtener_credenciales`$$
-CREATE PROCEDURE `sp_obtener_credenciales`(IN p_correo CHAR(50))
-BEGIN
-    SELECT `Numero_documento`,
-           `Tipo_documento`,
-           `Contraseña` AS `Contrasena_hash`,
-           `Rol_usuario`,
-           `Estado`,
-           fn_nombre_completo(`Numero_documento`) AS `Nombre_completo`
-      FROM `USUARIO`
-     WHERE `Correo` = LOWER(TRIM(p_correo));
-END$$
-
--- Un administrador activa, inactiva o bloquea a un usuario.
+-- 2) Un administrador activa, inactiva o bloquea a un usuario.
+--    Al inactivar/bloquear, trg_usuario_au cancela sus solicitudes pendientes.
 DROP PROCEDURE IF EXISTS `sp_cambiar_estado_usuario`$$
 CREATE PROCEDURE `sp_cambiar_estado_usuario`(
     IN p_documento_admin INT,
@@ -989,40 +612,47 @@ CREATE PROCEDURE `sp_cambiar_estado_usuario`(
     IN p_estado          CHAR(20)
 )
 BEGIN
+    DECLARE v_estado CHAR(20);
+
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
         RESIGNAL;
     END;
 
+    SET v_estado = UPPER(TRIM(p_estado));
+
+    IF v_estado IS NULL OR v_estado NOT IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Estado invalido (ACTIVO, INACTIVO, BLOQUEADO).', MYSQL_ERRNO = 45001;
+    END IF;
+
     IF NOT EXISTS (SELECT 1 FROM `ADMINISTRADOR` WHERE `Numero_documento` = p_documento_admin)
        OR fn_usuario_activo(p_documento_admin) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo un administrador activo puede cambiar estados.', MYSQL_ERRNO = 45025;
+            SET MESSAGE_TEXT = 'Solo un administrador activo puede cambiar estados.', MYSQL_ERRNO = 45007;
     END IF;
 
     IF p_documento_admin = p_documento THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un administrador no puede cambiar su propio estado.', MYSQL_ERRNO = 45025;
+            SET MESSAGE_TEXT = 'Un administrador no puede cambiar su propio estado.', MYSQL_ERRNO = 45007;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM `USUARIO` WHERE `Numero_documento` = p_documento) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El usuario no existe.', MYSQL_ERRNO = 45002;
     END IF;
 
     START TRANSACTION;
 
     UPDATE `USUARIO`
-       SET `Estado` = p_estado
+       SET `Estado` = v_estado
      WHERE `Numero_documento` = p_documento;
-
-    IF ROW_COUNT() = 0 AND NOT EXISTS (SELECT 1 FROM `USUARIO` WHERE `Numero_documento` = p_documento) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El usuario no existe.', MYSQL_ERRNO = 45001;
-    END IF;
 
     COMMIT;
 END$$
 
--- ---------------- MOTOCICLETAS ----------------
-
--- Registra el seguro y la motocicleta juntos (el front los envia juntos).
+-- 3) Registra el seguro y la motocicleta juntos (el front los envia juntos).
 DROP PROCEDURE IF EXISTS `sp_registrar_motocicleta`$$
 CREATE PROCEDURE `sp_registrar_motocicleta`(
     IN  p_arrendador            INT,
@@ -1040,30 +670,50 @@ CREATE PROCEDURE `sp_registrar_motocicleta`(
     OUT p_id_seguro             INT
 )
 BEGIN
+    DECLARE v_estado_poliza CHAR(20);
+
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
         ROLLBACK;
         RESIGNAL;
     END;
 
+    SET v_estado_poliza = UPPER(TRIM(p_estado_poliza));
+
     IF NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador)
        OR fn_usuario_activo(p_arrendador) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45002;
+    END IF;
+
+    IF v_estado_poliza IS NULL OR v_estado_poliza NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA')
+       OR p_numero_poliza IS NULL OR p_numero_poliza <= 0
+       OR p_aseguradora IS NULL OR TRIM(p_aseguradora) = '' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Datos del seguro invalidos.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
 
+    -- Bloquea SEGURO antes de verificar la poliza y generar el id.
     SELECT COALESCE(MAX(`Id_seguro`), 0) + 1
       INTO p_id_seguro
       FROM `SEGURO`
        FOR UPDATE;
 
+    IF EXISTS (SELECT 1 FROM `SEGURO`
+                WHERE `Aseguradora` = TRIM(p_aseguradora)
+                  AND `numero_poliza` = p_numero_poliza) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45003;
+    END IF;
+
     INSERT INTO `SEGURO`
         (`Estado_poliza`, `Id_seguro`, `numero_poliza`, `Aseguradora`, `Fecha_inicio_vigencia`)
     VALUES
-        (p_estado_poliza, p_id_seguro, p_numero_poliza, p_aseguradora, p_fecha_inicio_vigencia);
+        (v_estado_poliza, p_id_seguro, p_numero_poliza, TRIM(p_aseguradora), p_fecha_inicio_vigencia);
 
+    -- trg_motocicleta_bi valida los datos, la placa y el seguro unicos.
     INSERT INTO `MOTOCICLETA`
         (`Estado_motocicleta`, `Kilometraje_actual`, `Precio_alquiler`, `Cilindraje`, `Año`,
          `modelo`, `Marca`, `Placa`, `Numero_documento`, `Id_seguro`)
@@ -1074,71 +724,7 @@ BEGIN
     COMMIT;
 END$$
 
--- El arrendador pone su moto DISPONIBLE, en MANTENIMIENTO o INACTIVA.
--- ARRENDADA solo la asignan los procesos de contrato.
-DROP PROCEDURE IF EXISTS `sp_cambiar_estado_motocicleta`$$
-CREATE PROCEDURE `sp_cambiar_estado_motocicleta`(
-    IN p_arrendador INT,
-    IN p_placa      CHAR(10),
-    IN p_estado     CHAR(20)
-)
-BEGIN
-    DECLARE v_placa  CHAR(10);
-    DECLARE v_nuevo  CHAR(20);
-    DECLARE v_actual CHAR(20) DEFAULT NULL;
-
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    SET v_placa = UPPER(TRIM(p_placa));
-    SET v_nuevo = UPPER(TRIM(p_estado));
-
-    IF v_nuevo IS NULL OR v_nuevo NOT IN ('DISPONIBLE', 'MANTENIMIENTO', 'INACTIVA') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado no permitido (DISPONIBLE, MANTENIMIENTO, INACTIVA).', MYSQL_ERRNO = 45007;
-    END IF;
-
-    START TRANSACTION;
-
-    SELECT `Estado_motocicleta`
-      INTO v_actual
-      FROM `MOTOCICLETA`
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = p_arrendador
-       FOR UPDATE;
-
-    IF v_actual IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no existe para este arrendador.', MYSQL_ERRNO = 45010;
-    END IF;
-
-    IF v_actual = 'ARRENDADA' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta tiene un contrato en curso.', MYSQL_ERRNO = 45014;
-    END IF;
-
-    IF v_nuevo = 'INACTIVA' AND EXISTS (
-        SELECT 1 FROM `CONTRATO`
-         WHERE `Placa` = v_placa
-           AND `Numero_documento21` = p_arrendador
-           AND `Estado_contrato` = 'VIGENTE'
-           AND `Fecha_fin` >= CURDATE()) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'No se puede inactivar: tiene contratos vigentes futuros.', MYSQL_ERRNO = 45014;
-    END IF;
-
-    UPDATE `MOTOCICLETA`
-       SET `Estado_motocicleta` = v_nuevo
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = p_arrendador;
-
-    COMMIT;
-END$$
-
--- Catalogo de motos que se pueden alquilar en un rango de fechas.
+-- 4) Catalogo de motos que se pueden alquilar en un rango de fechas.
 DROP PROCEDURE IF EXISTS `sp_listar_motos_disponibles`$$
 CREATE PROCEDURE `sp_listar_motos_disponibles`(
     IN p_fecha_inicio DATE,
@@ -1148,7 +734,7 @@ BEGIN
     IF p_fecha_inicio IS NULL OR p_fecha_fin IS NULL
        OR p_fecha_inicio < CURDATE() OR p_fecha_fin < p_fecha_inicio THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45022;
+            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45006;
     END IF;
 
     SELECT m.`Placa`,
@@ -1169,64 +755,7 @@ BEGIN
      ORDER BY m.`Precio_alquiler`;
 END$$
 
--- Registra un mantenimiento. El trigger trg_mantenimiento_ai actualiza el
--- kilometraje de la moto.
-DROP PROCEDURE IF EXISTS `sp_registrar_mantenimiento`$$
-CREATE PROCEDURE `sp_registrar_mantenimiento`(
-    IN  p_arrendador  INT,
-    IN  p_placa       CHAR(10),
-    IN  p_fecha       DATE,
-    IN  p_tipo        CHAR(50),
-    IN  p_kilometraje INT,
-    IN  p_descripcion VARCHAR(500),
-    IN  p_costo       INT,
-    OUT p_id_mantenimiento INT
-)
-BEGIN
-    DECLARE v_placa CHAR(10);
-    DECLARE v_existe TINYINT DEFAULT 0;
-
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    SET v_placa = UPPER(TRIM(p_placa));
-
-    START TRANSACTION;
-
-    -- Bloquea la moto mientras se registra el mantenimiento.
-    SELECT COUNT(*)
-      INTO v_existe
-      FROM `MOTOCICLETA`
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = p_arrendador
-       FOR UPDATE;
-
-    IF v_existe = 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no existe para este arrendador.', MYSQL_ERRNO = 45010;
-    END IF;
-
-    SELECT COALESCE(MAX(`Id_mantenimiento`), 0) + 1
-      INTO p_id_mantenimiento
-      FROM `INFO_MANTENIMIENTO`
-       FOR UPDATE;
-
-    INSERT INTO `INFO_MANTENIMIENTO`
-        (`Id_mantenimiento`, `Fecha_mantenimiento`, `Tipo_mantenimiento`, `Kilometraje_al_momento`,
-         `Descripcion_mantenimiento`, `Costo`, `Placa`, `Numero_documento`)
-    VALUES
-        (p_id_mantenimiento, IFNULL(p_fecha, CURDATE()), p_tipo, p_kilometraje,
-         p_descripcion, p_costo, v_placa, p_arrendador);
-
-    COMMIT;
-END$$
-
--- ---------------- SOLICITUDES ----------------
-
--- Crea la solicitud y su contrato PENDIENTE en una sola transaccion.
+-- 5) Crea la solicitud y su contrato PENDIENTE en una sola transaccion.
 --
 -- Por la FK circular obligatoria SOLICITUD <-> CONTRATO, ninguna de las dos
 -- filas puede insertarse primero con las FK activas. Por eso se desactiva
@@ -1265,13 +794,13 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM `ARRENDATARIO` WHERE `Numero_documento` = p_arrendatario)
        OR fn_usuario_activo(p_arrendatario) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendatario no existe o no esta activo.', MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'El arrendatario no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;
 
     IF p_fecha_inicio IS NULL OR p_fecha_fin IS NULL
        OR p_fecha_inicio < CURDATE() OR p_fecha_fin < p_fecha_inicio THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45022;
+            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45006;
     END IF;
 
     START TRANSACTION;
@@ -1285,20 +814,20 @@ BEGIN
 
     IF v_motos = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no existe.', MYSQL_ERRNO = 45010;
+            SET MESSAGE_TEXT = 'La motocicleta no existe.', MYSQL_ERRNO = 45004;
     ELSEIF v_motos > 1 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La placa esta registrada a mas de un arrendador.', MYSQL_ERRNO = 45011;
+            SET MESSAGE_TEXT = 'La placa esta registrada a mas de un arrendador.', MYSQL_ERRNO = 45010;
     END IF;
 
     IF v_arrendador = p_arrendatario THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45023;
+            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45007;
     END IF;
 
     IF fn_moto_disponible(v_placa, v_arrendador, p_fecha_inicio, p_fecha_fin, NULL) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no esta disponible en esas fechas.', MYSQL_ERRNO = 45014;
+            SET MESSAGE_TEXT = 'La motocicleta no esta disponible en esas fechas.', MYSQL_ERRNO = 45005;
     END IF;
 
     IF EXISTS (SELECT 1 FROM `SOLICITUD`
@@ -1307,7 +836,7 @@ BEGIN
                   AND `Numero_documento2` = v_arrendador
                   AND `Estado_solicitud` = 'PENDIENTE') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Ya tiene una solicitud pendiente para esta motocicleta.', MYSQL_ERRNO = 45024;
+            SET MESSAGE_TEXT = 'Ya tiene una solicitud pendiente para esta motocicleta.', MYSQL_ERRNO = 45003;
     END IF;
 
     SELECT COALESCE(MAX(`Id_solicitud`), 0) + 1
@@ -1331,12 +860,13 @@ BEGIN
          p_arrendatario, v_arrendador,
          p_id_solicitud, p_arrendatario, v_placa, v_arrendador);
 
+    -- trg_solicitud_bi completa Fecha_solicitud y Estado_solicitud.
     INSERT INTO `SOLICITUD`
         (`Id_solicitud`, `Fecha_solicitud`, `Estado_solicitud`, `Mensaje_solicitud`,
          `Numero_documento`, `Placa`, `Numero_documento2`,
          `id_contrato`, `Numero_documento1`, `Numero_documento11`)
     VALUES
-        (p_id_solicitud, CURDATE(), 'PENDIENTE', IFNULL(p_mensaje, ''),
+        (p_id_solicitud, CURDATE(), 'PENDIENTE', p_mensaje,
          p_arrendatario, v_placa, v_arrendador,
          p_id_contrato, p_arrendatario, v_arrendador);
 
@@ -1345,59 +875,8 @@ BEGIN
     COMMIT;
 END$$
 
--- El arrendatario cancela su propia solicitud PENDIENTE.
-DROP PROCEDURE IF EXISTS `sp_cancelar_solicitud`$$
-CREATE PROCEDURE `sp_cancelar_solicitud`(
-    IN p_id_solicitud INT,
-    IN p_arrendatario INT
-)
-BEGIN
-    DECLARE v_estado       CHAR(20) DEFAULT NULL;
-    DECLARE v_arrendatario INT;
-    DECLARE v_id_contrato  INT;
-
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    START TRANSACTION;
-
-    SELECT `Estado_solicitud`, `Numero_documento`, `id_contrato`
-      INTO v_estado, v_arrendatario, v_id_contrato
-      FROM `SOLICITUD`
-     WHERE `Id_solicitud` = p_id_solicitud
-       FOR UPDATE;
-
-    IF v_estado IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no existe.', MYSQL_ERRNO = 45020;
-    END IF;
-
-    IF v_arrendatario <> p_arrendatario THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no pertenece a este arrendatario.', MYSQL_ERRNO = 45025;
-    END IF;
-
-    IF v_estado <> 'PENDIENTE' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se pueden cancelar solicitudes PENDIENTES.', MYSQL_ERRNO = 45021;
-    END IF;
-
-    UPDATE `SOLICITUD`
-       SET `Estado_solicitud` = 'CANCELADA'
-     WHERE `Id_solicitud` = p_id_solicitud;
-
-    UPDATE `CONTRATO`
-       SET `Estado_contrato` = 'CANCELADO'
-     WHERE `id_contrato` = v_id_contrato;
-
-    COMMIT;
-END$$
-
--- El arrendador aprueba o rechaza una solicitud.
---   RECHAZADA: solicitud RECHAZADA, contrato CANCELADO.
+-- 6) El arrendador aprueba o rechaza una solicitud.
+--   RECHAZADA: solicitud RECHAZADA (trg_solicitud_au cancela su contrato).
 --   APROBADA : solicitud APROBADA, contrato VIGENTE, se genera el PAGO
 --              PENDIENTE por el valor total, la moto pasa a ARRENDADA si el
 --              alquiler empieza hoy, y con un CURSOR se rechazan las demas
@@ -1406,7 +885,7 @@ END$$
 --
 -- Nota: PAGO.fecha_pago y PAGO.Metodo_pago son NOT NULL en el modelo. Mientras
 -- el pago esta PENDIENTE, fecha_pago guarda la fecha en que se genero y
--- Metodo_pago vale 'POR_DEFINIR'; sp_registrar_pago los actualiza al pagar.
+-- Metodo_pago vale 'POR_DEFINIR'; al pagar, trg_pago_bu fija la fecha real.
 DROP PROCEDURE IF EXISTS `sp_responder_solicitud`$$
 CREATE PROCEDURE `sp_responder_solicitud`(
     IN  p_id_solicitud INT,
@@ -1437,7 +916,7 @@ BEGIN
 
     IF v_decision IS NULL OR v_decision NOT IN ('APROBADA', 'RECHAZADA') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La decision debe ser APROBADA o RECHAZADA.', MYSQL_ERRNO = 45021;
+            SET MESSAGE_TEXT = 'La decision debe ser APROBADA o RECHAZADA.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
@@ -1449,12 +928,12 @@ BEGIN
 
     IF v_estado IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no existe.', MYSQL_ERRNO = 45020;
+            SET MESSAGE_TEXT = 'La solicitud no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_arrendador <> p_arrendador THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no corresponde a una moto de este arrendador.', MYSQL_ERRNO = 45025;
+            SET MESSAGE_TEXT = 'La solicitud no corresponde a una moto de este arrendador.', MYSQL_ERRNO = 45007;
     END IF;
 
     -- Orden de bloqueo: MOTOCICLETA -> SOLICITUD -> CONTRATO (igual que
@@ -1475,7 +954,7 @@ BEGIN
 
     IF v_estado <> 'PENDIENTE' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud ya fue respondida o cancelada.', MYSQL_ERRNO = 45021;
+            SET MESSAGE_TEXT = 'La solicitud ya fue respondida o cancelada.', MYSQL_ERRNO = 45008;
     END IF;
 
     SELECT `Fecha_inicio`, `Fecha_fin`
@@ -1490,25 +969,21 @@ BEGIN
            SET `Estado_solicitud` = 'RECHAZADA'
          WHERE `Id_solicitud` = p_id_solicitud;
 
-        UPDATE `CONTRATO`
-           SET `Estado_contrato` = 'CANCELADO'
-         WHERE `id_contrato` = v_id_contrato;
-
     ELSE
 
         IF v_fecha_inicio < CURDATE() THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'La fecha de inicio ya paso; la solicitud expiro.', MYSQL_ERRNO = 45022;
+                SET MESSAGE_TEXT = 'La fecha de inicio ya paso; la solicitud expiro.', MYSQL_ERRNO = 45006;
         END IF;
 
         IF fn_usuario_activo(v_arrendatario) = 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'El arrendatario ya no esta activo.', MYSQL_ERRNO = 45001;
+                SET MESSAGE_TEXT = 'El arrendatario ya no esta activo.', MYSQL_ERRNO = 45002;
         END IF;
 
         IF fn_moto_disponible(v_placa, v_arrendador, v_fecha_inicio, v_fecha_fin, v_id_contrato) = 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'La motocicleta ya no esta disponible en esas fechas.', MYSQL_ERRNO = 45014;
+                SET MESSAGE_TEXT = 'La motocicleta ya no esta disponible en esas fechas.', MYSQL_ERRNO = 45005;
         END IF;
 
         UPDATE `SOLICITUD`
@@ -1542,16 +1017,16 @@ BEGIN
             (p_id_pago, CURDATE(), v_monto, v_fecha_inicio, 'PENDIENTE', 'POR_DEFINIR',
              v_id_contrato, v_arrendatario, v_arrendador);
 
-        -- CURSOR: rechaza las otras solicitudes pendientes que se cruzan.
+        -- CURSOR: rechaza las otras solicitudes pendientes que se cruzan
+        -- (trg_solicitud_au cancela el contrato de cada una).
         -- Va en un bloque propio para que el handler NOT FOUND solo afecte
         -- al FETCH del cursor y no a los SELECT ... INTO de arriba.
         BEGIN
-            DECLARE v_fin           TINYINT DEFAULT 0;
+            DECLARE v_fin            TINYINT DEFAULT 0;
             DECLARE v_otra_solicitud INT;
-            DECLARE v_otro_contrato  INT;
 
             DECLARE cur_conflictos CURSOR FOR
-                SELECT s.`Id_solicitud`, s.`id_contrato`
+                SELECT s.`Id_solicitud`
                   FROM `SOLICITUD` s
                   JOIN `CONTRATO` c
                     ON c.`id_contrato`       = s.`id_contrato`
@@ -1569,7 +1044,7 @@ BEGIN
             OPEN cur_conflictos;
 
             lectura: LOOP
-                FETCH cur_conflictos INTO v_otra_solicitud, v_otro_contrato;
+                FETCH cur_conflictos INTO v_otra_solicitud;
                 IF v_fin = 1 THEN
                     LEAVE lectura;
                 END IF;
@@ -1577,10 +1052,6 @@ BEGIN
                 UPDATE `SOLICITUD`
                    SET `Estado_solicitud` = 'RECHAZADA'
                  WHERE `Id_solicitud` = v_otra_solicitud;
-
-                UPDATE `CONTRATO`
-                   SET `Estado_contrato` = 'CANCELADO'
-                 WHERE `id_contrato` = v_otro_contrato;
             END LOOP lectura;
 
             CLOSE cur_conflictos;
@@ -1591,9 +1062,8 @@ BEGIN
     COMMIT;
 END$$
 
--- ---------------- PAGOS ----------------
-
--- El arrendatario paga un pago PENDIENTE o VENCIDO de un contrato VIGENTE.
+-- 7) El arrendatario paga un pago PENDIENTE o VENCIDO de un contrato VIGENTE.
+--    trg_pago_bu valida la transicion y fija fecha_pago.
 DROP PROCEDURE IF EXISTS `sp_registrar_pago`$$
 CREATE PROCEDURE `sp_registrar_pago`(
     IN p_id_pago      INT,
@@ -1601,7 +1071,6 @@ CREATE PROCEDURE `sp_registrar_pago`(
     IN p_metodo_pago  CHAR(20)
 )
 BEGIN
-    DECLARE v_metodo       CHAR(20);
     DECLARE v_estado       CHAR(20) DEFAULT NULL;
     DECLARE v_arrendatario INT;
     DECLARE v_id_contrato  INT;
@@ -1611,13 +1080,6 @@ BEGIN
         ROLLBACK;
         RESIGNAL;
     END;
-
-    SET v_metodo = UPPER(TRIM(p_metodo_pago));
-
-    IF v_metodo IS NULL OR v_metodo NOT IN ('EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'PSE', 'NEQUI') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Metodo de pago invalido.', MYSQL_ERRNO = 45042;
-    END IF;
 
     START TRANSACTION;
 
@@ -1629,122 +1091,52 @@ BEGIN
 
     IF v_estado IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El pago no existe.', MYSQL_ERRNO = 45040;
+            SET MESSAGE_TEXT = 'El pago no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_arrendatario <> p_arrendatario THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El pago no pertenece a este arrendatario.', MYSQL_ERRNO = 45025;
-    END IF;
-
-    IF v_estado NOT IN ('PENDIENTE', 'VENCIDO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se pueden pagar pagos PENDIENTES o VENCIDOS.', MYSQL_ERRNO = 45041;
+            SET MESSAGE_TEXT = 'El pago no pertenece a este arrendatario.', MYSQL_ERRNO = 45007;
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM `CONTRATO`
                     WHERE `id_contrato` = v_id_contrato
                       AND `Estado_contrato` = 'VIGENTE') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato del pago no esta VIGENTE.', MYSQL_ERRNO = 45031;
+            SET MESSAGE_TEXT = 'El contrato del pago no esta VIGENTE.', MYSQL_ERRNO = 45008;
     END IF;
 
     UPDATE `PAGO`
        SET `Estado`      = 'PAGADO',
-           `Metodo_pago` = v_metodo,
-           `fecha_pago`  = CURDATE()
+           `Metodo_pago` = p_metodo_pago
      WHERE `Id_pago` = p_id_pago;
 
     COMMIT;
 END$$
 
--- ---------------- CONTRATOS ----------------
-
--- El arrendador finaliza un contrato VIGENTE ya iniciado y totalmente pagado,
--- registrando el kilometraje con que se devolvio la moto.
-DROP PROCEDURE IF EXISTS `sp_finalizar_contrato`$$
-CREATE PROCEDURE `sp_finalizar_contrato`(
+-- 8) Arrendador finaliza, o cualquiera de las partes cancela, un contrato VIGENTE.
+--   FINALIZADO: solo el arrendador, contrato ya iniciado, sin saldo pendiente;
+--               registra el kilometraje de devolucion.
+--   CANCELADO : arrendatario o arrendador, solo si el contrato aun no inicia.
+--               (los pagos PAGADOS se conservan; la devolucion de dinero se
+--               gestiona fuera de la base de datos).
+-- Efectos automaticos (trg_contrato_au): al FINALIZAR la moto vuelve a
+-- DISPONIBLE; al CANCELAR los pagos pendientes/vencidos se cancelan.
+DROP PROCEDURE IF EXISTS `sp_cerrar_contrato`$$
+CREATE PROCEDURE `sp_cerrar_contrato`(
     IN p_id_contrato       INT,
-    IN p_arrendador        INT,
+    IN p_documento         INT,
+    IN p_accion            CHAR(20),
     IN p_kilometraje_final INT
 )
 BEGIN
-    DECLARE v_estado       CHAR(20) DEFAULT NULL;
-    DECLARE v_arrendador   INT;
-    DECLARE v_placa        CHAR(10);
-    DECLARE v_fecha_inicio DATE;
-
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    IF p_kilometraje_final IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El kilometraje final es obligatorio.', MYSQL_ERRNO = 45012;
-    END IF;
-
-    START TRANSACTION;
-
-    SELECT `Estado_contrato`, `Numero_documento1`, `Placa`, `Fecha_inicio`
-      INTO v_estado, v_arrendador, v_placa, v_fecha_inicio
-      FROM `CONTRATO`
-     WHERE `id_contrato` = p_id_contrato
-       FOR UPDATE;
-
-    IF v_estado IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato no existe.', MYSQL_ERRNO = 45030;
-    END IF;
-
-    IF v_arrendador <> p_arrendador THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato no pertenece a este arrendador.', MYSQL_ERRNO = 45025;
-    END IF;
-
-    IF v_estado <> 'VIGENTE' THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se pueden finalizar contratos VIGENTES.', MYSQL_ERRNO = 45031;
-    END IF;
-
-    IF v_fecha_inicio > CURDATE() THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato aun no ha iniciado; use cancelar.', MYSQL_ERRNO = 45031;
-    END IF;
-
-    IF fn_saldo_pendiente(p_id_contrato) > 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato tiene pagos pendientes.', MYSQL_ERRNO = 45032;
-    END IF;
-
-    UPDATE `CONTRATO`
-       SET `Estado_contrato` = 'FINALIZADO'
-     WHERE `id_contrato` = p_id_contrato;
-
-    -- trg_motocicleta_bu rechaza un kilometraje menor al actual.
-    UPDATE `MOTOCICLETA`
-       SET `Kilometraje_actual` = p_kilometraje_final,
-           `Estado_motocicleta` = IF(`Estado_motocicleta` = 'ARRENDADA', 'DISPONIBLE', `Estado_motocicleta`)
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = p_arrendador;
-
-    COMMIT;
-END$$
-
--- Arrendatario o arrendador cancelan un contrato VIGENTE que aun no inicia.
--- Los pagos PENDIENTES/VENCIDOS se cancelan; los PAGADOS se conservan
--- (la devolucion de dinero se gestiona fuera de la base de datos).
-DROP PROCEDURE IF EXISTS `sp_cancelar_contrato`$$
-CREATE PROCEDURE `sp_cancelar_contrato`(
-    IN p_id_contrato INT,
-    IN p_documento   INT
-)
-BEGIN
+    DECLARE v_accion       CHAR(20);
     DECLARE v_estado       CHAR(20) DEFAULT NULL;
     DECLARE v_arrendatario INT;
     DECLARE v_arrendador   INT;
+    DECLARE v_placa        CHAR(10);
     DECLARE v_fecha_inicio DATE;
+    DECLARE v_km_actual    INT;
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -1752,52 +1144,90 @@ BEGIN
         RESIGNAL;
     END;
 
+    SET v_accion = UPPER(TRIM(p_accion));
+
+    IF v_accion IS NULL OR v_accion NOT IN ('FINALIZADO', 'CANCELADO') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La accion debe ser FINALIZADO o CANCELADO.', MYSQL_ERRNO = 45001;
+    END IF;
+
     START TRANSACTION;
 
-    SELECT `Estado_contrato`, `Numero_documento`, `Numero_documento1`, `Fecha_inicio`
-      INTO v_estado, v_arrendatario, v_arrendador, v_fecha_inicio
+    SELECT `Estado_contrato`, `Numero_documento`, `Numero_documento1`, `Placa`, `Fecha_inicio`
+      INTO v_estado, v_arrendatario, v_arrendador, v_placa, v_fecha_inicio
       FROM `CONTRATO`
      WHERE `id_contrato` = p_id_contrato
        FOR UPDATE;
 
     IF v_estado IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato no existe.', MYSQL_ERRNO = 45030;
-    END IF;
-
-    IF p_documento NOT IN (v_arrendatario, v_arrendador) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El usuario no es parte del contrato.', MYSQL_ERRNO = 45025;
+            SET MESSAGE_TEXT = 'El contrato no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_estado <> 'VIGENTE' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se pueden cancelar contratos VIGENTES.', MYSQL_ERRNO = 45031;
+            SET MESSAGE_TEXT = 'Solo se pueden cerrar contratos VIGENTES.', MYSQL_ERRNO = 45008;
     END IF;
 
-    IF v_fecha_inicio <= CURDATE() THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El contrato ya inicio y no puede cancelarse.', MYSQL_ERRNO = 45033;
+    IF v_accion = 'FINALIZADO' THEN
+
+        IF p_documento <> v_arrendador THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Solo el arrendador puede finalizar el contrato.', MYSQL_ERRNO = 45007;
+        END IF;
+
+        IF v_fecha_inicio > CURDATE() THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'El contrato aun no ha iniciado; debe cancelarse.', MYSQL_ERRNO = 45008;
+        END IF;
+
+        IF fn_saldo_pendiente(p_id_contrato) > 0 THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'El contrato tiene pagos pendientes.', MYSQL_ERRNO = 45009;
+        END IF;
+
+        SELECT `Kilometraje_actual`
+          INTO v_km_actual
+          FROM `MOTOCICLETA`
+         WHERE `Placa` = v_placa
+           AND `Numero_documento` = v_arrendador
+           FOR UPDATE;
+
+        IF p_kilometraje_final IS NULL OR p_kilometraje_final < v_km_actual THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'El kilometraje final no puede ser menor al actual.', MYSQL_ERRNO = 45001;
+        END IF;
+
+        UPDATE `MOTOCICLETA`
+           SET `Kilometraje_actual` = p_kilometraje_final
+         WHERE `Placa` = v_placa
+           AND `Numero_documento` = v_arrendador;
+
+    ELSE
+
+        IF p_documento NOT IN (v_arrendatario, v_arrendador) THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'El usuario no es parte del contrato.', MYSQL_ERRNO = 45007;
+        END IF;
+
+        IF v_fecha_inicio <= CURDATE() THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'El contrato ya inicio y no puede cancelarse.', MYSQL_ERRNO = 45008;
+        END IF;
+
     END IF;
 
     UPDATE `CONTRATO`
-       SET `Estado_contrato` = 'CANCELADO'
+       SET `Estado_contrato` = v_accion
      WHERE `id_contrato` = p_id_contrato;
-
-    UPDATE `PAGO`
-       SET `Estado` = 'CANCELADO'
-     WHERE `id_contrato` = p_id_contrato
-       AND `Estado` IN ('PENDIENTE', 'VENCIDO');
 
     COMMIT;
 END$$
 
--- ---------------- PROCESOS Y REPORTES ----------------
-
--- Proceso diario (lo puede llamar el evento de la seccion 6 o el backend):
+-- 9) Proceso diario (lo puede llamar el evento de la seccion 4 o el backend):
 --   1. Pagos PENDIENTES cuya fecha de vencimiento ya paso -> VENCIDO.
 --   2. CURSOR: solicitudes PENDIENTES cuya fecha de inicio ya paso
---      -> solicitud CANCELADA y contrato CANCELADO.
+--      -> CANCELADA (trg_solicitud_au cancela su contrato).
 --   3. Motos DISPONIBLES con un contrato VIGENTE que ya inicio -> ARRENDADA.
 DROP PROCEDURE IF EXISTS `sp_actualizar_estados_diarios`$$
 CREATE PROCEDURE `sp_actualizar_estados_diarios`(
@@ -1826,10 +1256,9 @@ BEGIN
     BEGIN
         DECLARE v_fin          TINYINT DEFAULT 0;
         DECLARE v_id_solicitud INT;
-        DECLARE v_id_contrato  INT;
 
         DECLARE cur_expiradas CURSOR FOR
-            SELECT s.`Id_solicitud`, s.`id_contrato`
+            SELECT s.`Id_solicitud`
               FROM `SOLICITUD` s
               JOIN `CONTRATO` c
                 ON c.`id_contrato`       = s.`id_contrato`
@@ -1843,7 +1272,7 @@ BEGIN
         OPEN cur_expiradas;
 
         lectura: LOOP
-            FETCH cur_expiradas INTO v_id_solicitud, v_id_contrato;
+            FETCH cur_expiradas INTO v_id_solicitud;
             IF v_fin = 1 THEN
                 LEAVE lectura;
             END IF;
@@ -1851,10 +1280,6 @@ BEGIN
             UPDATE `SOLICITUD`
                SET `Estado_solicitud` = 'CANCELADA'
              WHERE `Id_solicitud` = v_id_solicitud;
-
-            UPDATE `CONTRATO`
-               SET `Estado_contrato` = 'CANCELADO'
-             WHERE `id_contrato` = v_id_contrato;
 
             SET p_solicitudes_expiradas = p_solicitudes_expiradas + 1;
         END LOOP lectura;
@@ -1877,8 +1302,9 @@ BEGIN
     COMMIT;
 END$$
 
--- Reporte por moto de un arrendador en un rango de fechas, armado con CURSOR:
--- contratos, ingresos (pagos PAGADOS), costos de mantenimiento y utilidad.
+-- 10) Reporte por moto de un arrendador en un rango de fechas, armado con
+--     CURSOR: contratos, ingresos (pagos PAGADOS), costos de mantenimiento
+--     y utilidad.
 DROP PROCEDURE IF EXISTS `sp_reporte_ingresos_arrendador`$$
 CREATE PROCEDURE `sp_reporte_ingresos_arrendador`(
     IN p_arrendador INT,
@@ -1904,12 +1330,12 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe.', MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'El arrendador no existe.', MYSQL_ERRNO = 45002;
     END IF;
 
     IF p_desde IS NULL OR p_hasta IS NULL OR p_hasta < p_desde THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45022;
+            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45006;
     END IF;
 
     DROP TEMPORARY TABLE IF EXISTS `tmp_reporte_ingresos`;
@@ -1975,7 +1401,7 @@ END$$
 
 
 -- ================================================================
--- 6. EVENTO PROGRAMADO (opcional)
+-- 4. EVENTO PROGRAMADO (opcional)
 -- Requiere activar el programador una vez (usuario con privilegios):
 --   SET GLOBAL event_scheduler = ON;
 -- ================================================================
@@ -1991,16 +1417,12 @@ DELIMITER ;
 
 
 -- ================================================================
--- 7. EJEMPLOS DE USO (para el backend; no se ejecutan, estan comentados)
+-- 5. EJEMPLOS DE USO (para el backend; no se ejecutan, estan comentados)
 -- ================================================================
--- SET @usuario_app = 1001;
---
 -- CALL sp_registrar_usuario('CC', 1001, 'Ana', NULL, 'Rojas', NULL,
 --                           300123456, 'ana@correo.com', '<hash>', 'ARRENDADOR');
 -- CALL sp_registrar_usuario('CC', 2002, 'Luis', NULL, 'Diaz', NULL,
 --                           310123456, 'luis@correo.com', '<hash>', 'ARRENDATARIO');
---
--- CALL sp_obtener_credenciales('ana@correo.com');
 --
 -- CALL sp_registrar_motocicleta(1001, 'ABC12D', 'Yamaha', 'NMAX', 2023, 155, 1200, 80000,
 --                               987654, 'Sura', '2026-01-01', 'VIGENTE', @id_seguro);
@@ -2013,10 +1435,14 @@ DELIMITER ;
 --
 -- CALL sp_responder_solicitud(@id_sol, 1001, 'APROBADA', @id_pago);
 -- CALL sp_registrar_pago(@id_pago, 2002, 'NEQUI');
--- CALL sp_finalizar_contrato(@id_con, 1001, 1650);
+-- CALL sp_cerrar_contrato(@id_con, 1001, 'FINALIZADO', 1650);
+-- CALL sp_cerrar_contrato(@id_con, 2002, 'CANCELADO', NULL);
 --
 -- CALL sp_reporte_ingresos_arrendador(1001, '2026-01-01', '2026-12-31');
 -- CALL sp_actualizar_estados_diarios(@p, @s, @m); SELECT @p, @s, @m;
+--
+-- Los mantenimientos se insertan directamente en INFO_MANTENIMIENTO;
+-- trg_mantenimiento_ai actualiza solo el kilometraje de la moto.
 --
 -- Nota sobre Telefono INT: un celular colombiano de 10 digitos (3001234567)
 -- supera el maximo de INT (2147483647). Se recomienda cambiar la columna a
