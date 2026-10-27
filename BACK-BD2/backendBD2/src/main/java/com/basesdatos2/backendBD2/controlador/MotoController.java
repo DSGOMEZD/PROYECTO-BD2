@@ -60,4 +60,14 @@ public class MotoController {
 
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/{placa}")
+    public ResponseEntity<Void> actualizar(
+            @PathVariable String placa,
+            @RequestParam Integer documentoArrendador,
+            @Valid @RequestBody MotocicletaRequestDTO dto
+    ) {
+        motoService.actualizar(placa, documentoArrendador, dto);
+        return ResponseEntity.noContent().build();
+    }
 }

@@ -173,4 +173,48 @@ public class MotoRepository {
                 .addValue("p_estado", estado.name()));
     }
 
+    public void actualizar(
+            String placa,
+            Integer documentoArrendador,
+            MotocicletaRequestDTO dto
+    ) {
+        var seguro = dto.seguro();
+
+        SimpleJdbcCall llamada = new SimpleJdbcCall(jdbcTemplate)
+                .withProcedureName("sp_actualizar_motocicleta")
+                .withoutProcedureColumnMetaDataAccess()
+                .declareParameters(
+                        new SqlParameter("p_arrendador", Types.INTEGER),
+                        new SqlParameter("p_placa", Types.CHAR),
+                        new SqlParameter("p_marca", Types.CHAR),
+                        new SqlParameter("p_modelo", Types.CHAR),
+                        new SqlParameter("p_color", Types.CHAR),
+                        new SqlParameter("p_descripcion", Types.VARCHAR),
+                        new SqlParameter("p_anio", Types.INTEGER),
+                        new SqlParameter("p_cilindraje", Types.DECIMAL),
+                        new SqlParameter("p_kilometraje", Types.INTEGER),
+                        new SqlParameter("p_precio_alquiler", Types.INTEGER),
+                        new SqlParameter("p_numero_poliza", Types.INTEGER),
+                        new SqlParameter("p_aseguradora", Types.CHAR),
+                        new SqlParameter("p_fecha_inicio_vigencia", Types.DATE),
+                        new SqlParameter("p_estado_poliza", Types.CHAR)
+                );
+
+        llamada.execute(new MapSqlParameterSource()
+                .addValue("p_arrendador", documentoArrendador)
+                .addValue("p_placa", placa)
+                .addValue("p_marca", dto.marca())
+                .addValue("p_modelo", dto.modelo())
+                .addValue("p_color", dto.color())
+                .addValue("p_descripcion", dto.descripcion())
+                .addValue("p_anio", dto.anio())
+                .addValue("p_cilindraje", dto.cilindraje())
+                .addValue("p_kilometraje", dto.kilometraje())
+                .addValue("p_precio_alquiler", dto.precioDia())
+                .addValue("p_numero_poliza", seguro.numeroPoliza())
+                .addValue("p_aseguradora", seguro.aseguradora())
+                .addValue("p_fecha_inicio_vigencia", seguro.fechaInicioVigencia())
+                .addValue("p_estado_poliza", seguro.estadoPoliza().name()));
+    }
+
 }

@@ -1511,6 +1511,126 @@ BEGIN
     SELECT * FROM `tmp_reporte_ingresos` ORDER BY `Utilidad` DESC;
 
     DROP TEMPORARY TABLE IF EXISTS `tmp_reporte_ingresos`;
+END$
+
+
+-- 11) -- Actualiza los datos de una motocicleta y su seguro en una transacción.
+-- -- Valida propietario, estado de la moto y unicidad de la póliza.
+
+
+DROP PROCEDURE IF EXISTS sp_actualizar_motocicleta;
+DELIMITER $$
+
+CREATE PROCEDURE sp_actualizar_motocicleta(
+    IN p_arrendador            INT,
+    IN p_placa                 CHAR(10),
+    IN p_marca                 CHAR(50),
+    IN p_modelo                CHAR(50),
+    IN p_color                 CHAR(30),
+    IN p_descripcion           VARCHAR(200),
+    IN p_anio                  INT,
+    IN p_cilindraje            DECIMAL(10,2),
+    IN p_kilometraje           INT,
+    IN p_precio_alquiler       INT,
+    IN p_numero_poliza         INT,
+    IN p_aseguradora           CHAR(50),
+    IN p_fecha_inicio_vigencia DATE,
+    IN p_estado_poliza         CHAR(20)
+)
+BEGIN
+    DECLARE v_id_seguro INT DEFAULT NULL;
+    DECLARE v_estado_moto CHAR(20) DEFAULT NULL;
+    DECLARE v_encontrada BOOLEAN DEFAULT TRUE;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+        SET v_encontrada = FALSE;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+BEGIN
+ROLLBACK;
+RESIGNAL;
+END;
+
+    IF p_arrendador IS NULL
+       OR p_placa IS NULL OR TRIM(p_placa) = ''
+       OR p_marca IS NULL OR TRIM(p_marca) = ''
+       OR p_modelo IS NULL OR TRIM(p_modelo) = ''
+       OR p_anio IS NULL OR p_anio < 1950
+       OR p_cilindraje IS NULL OR p_cilindraje <= 0
+       OR p_kilometraje IS NULL OR p_kilometraje < 0
+       OR p_precio_alquiler IS NULL OR p_precio_alquiler <= 0
+       OR p_numero_poliza IS NULL OR p_numero_poliza <= 0
+       OR p_aseguradora IS NULL OR TRIM(p_aseguradora) = ''
+       OR p_fecha_inicio_vigencia IS NULL
+       OR UPPER(TRIM(p_estado_poliza)) NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Datos de la motocicleta o del seguro inválidos.',
+                MYSQL_ERRNO = 45001;
+END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM ARRENDADOR
+        WHERE Numero_documento = p_arrendador
+    ) OR fn_usuario_activo(p_arrendador) = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El arrendador no existe o no está activo.',
+                MYSQL_ERRNO = 45002;
+END IF;
+
+START TRANSACTION;
+
+SELECT Id_seguro, Estado_motocicleta
+INTO v_id_seguro, v_estado_moto
+FROM MOTOCICLETA
+WHERE Placa = TRIM(p_placa)
+  AND Numero_documento = p_arrendador
+    FOR UPDATE;
+
+IF NOT v_encontrada THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La motocicleta no existe para este arrendador.',
+                MYSQL_ERRNO = 45004;
+END IF;
+
+    IF v_estado_moto = 'ARRENDADA' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'No se puede editar una motocicleta arrendada.',
+                MYSQL_ERRNO = 45008;
+END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM SEGURO
+         WHERE Aseguradora = TRIM(p_aseguradora)
+           AND numero_poliza = p_numero_poliza
+           AND Id_seguro <> v_id_seguro
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La póliza ya está registrada para esa aseguradora.',
+                MYSQL_ERRNO = 45003;
+END IF;
+
+UPDATE SEGURO
+SET Estado_poliza = UPPER(TRIM(p_estado_poliza)),
+    numero_poliza = p_numero_poliza,
+    Aseguradora = TRIM(p_aseguradora),
+    Fecha_inicio_vigencia = p_fecha_inicio_vigencia
+WHERE Id_seguro = v_id_seguro;
+
+UPDATE MOTOCICLETA
+SET Marca = TRIM(p_marca),
+    modelo = TRIM(p_modelo),
+    Color = NULLIF(TRIM(p_color), ''),
+    Descripcion = NULLIF(TRIM(p_descripcion), ''),
+    `Año` = p_anio,
+    Cilindraje = p_cilindraje,
+    Kilometraje_actual = p_kilometraje,
+    Precio_alquiler = p_precio_alquiler
+WHERE Placa = TRIM(p_placa)
+  AND Numero_documento = p_arrendador;
+
+COMMIT;
 END$$
 
 

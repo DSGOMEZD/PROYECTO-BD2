@@ -22,4 +22,10 @@ public interface MotoService {
             Integer documentoArrendador,
             EstadoMotocicleta estado
     );
+
+    void actualizar(
+            String placa,
+            Integer documentoArrendador,
+            MotocicletaRequestDTO dto
+    );
 }

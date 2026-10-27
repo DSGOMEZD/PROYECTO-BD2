@@ -45,4 +45,12 @@ public class MotoServiceImpl implements MotoService {
         motoRepository.cambiarEstado(placa, documentoArrendador, estado);
     }
 
+    @Override
+    public void actualizar(
+            String placa,
+            Integer documentoArrendador,
+            MotocicletaRequestDTO dto
+    ) {
+        motoRepository.actualizar(placa, documentoArrendador, dto);
+    }
 }
