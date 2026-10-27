@@ -653,12 +653,16 @@ BEGIN
 END$$
 
 -- 3) Registra el seguro y la motocicleta juntos (el front los envia juntos).
-DROP PROCEDURE IF EXISTS `sp_registrar_motocicleta`$$
-CREATE PROCEDURE `sp_registrar_motocicleta`(
+DROP PROCEDURE IF EXISTS sp_registrar_motocicleta;
+DELIMITER $$
+
+CREATE PROCEDURE sp_registrar_motocicleta(
     IN  p_arrendador            INT,
     IN  p_placa                 CHAR(10),
     IN  p_marca                 CHAR(50),
     IN  p_modelo                CHAR(50),
+    IN  p_color                 CHAR(30),
+    IN  p_descripcion           VARCHAR(200),
     IN  p_anio                  INT,
     IN  p_cilindraje            DECIMAL(10,2),
     IN  p_kilometraje           INT,
@@ -680,49 +684,92 @@ BEGIN
 
     SET v_estado_poliza = UPPER(TRIM(p_estado_poliza));
 
-    IF NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador)
-       OR fn_usuario_activo(p_arrendador) = 0 THEN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM ARRENDADOR
+         WHERE Numero_documento = p_arrendador
+    ) OR fn_usuario_activo(p_arrendador) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45002;
+            SET MESSAGE_TEXT = 'El arrendador no existe o no está activo.',
+                MYSQL_ERRNO = 45002;
     END IF;
 
-    IF v_estado_poliza IS NULL OR v_estado_poliza NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA')
-       OR p_numero_poliza IS NULL OR p_numero_poliza <= 0
-       OR p_aseguradora IS NULL OR TRIM(p_aseguradora) = '' THEN
+    IF v_estado_poliza IS NULL
+       OR v_estado_poliza NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA')
+       OR p_numero_poliza IS NULL
+       OR p_numero_poliza <= 0
+       OR p_aseguradora IS NULL
+       OR TRIM(p_aseguradora) = '' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Datos del seguro invalidos.', MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'Datos del seguro inválidos.',
+                MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
 
-    -- Bloquea SEGURO antes de verificar la poliza y generar el id.
-    SELECT COALESCE(MAX(`Id_seguro`), 0) + 1
-      INTO p_id_seguro
-      FROM `SEGURO`
-       FOR UPDATE;
+    SELECT COALESCE(MAX(Id_seguro), 0) + 1
+        INTO p_id_seguro
+        FROM SEGURO
+    FOR UPDATE;
 
-    IF EXISTS (SELECT 1 FROM `SEGURO`
-                WHERE `Aseguradora` = TRIM(p_aseguradora)
-                  AND `numero_poliza` = p_numero_poliza) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45003;
+    IF EXISTS (
+        SELECT 1
+          FROM SEGURO
+        WHERE Aseguradora = TRIM(p_aseguradora)
+             AND numero_poliza = p_numero_poliza
+        ) THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'La póliza ya está registrada para esa aseguradora.',
+                    MYSQL_ERRNO = 45003;
     END IF;
 
-    INSERT INTO `SEGURO`
-        (`Estado_poliza`, `Id_seguro`, `numero_poliza`, `Aseguradora`, `Fecha_inicio_vigencia`)
-    VALUES
-        (v_estado_poliza, p_id_seguro, p_numero_poliza, TRIM(p_aseguradora), p_fecha_inicio_vigencia);
+    INSERT INTO SEGURO (
+        Estado_poliza,
+        Id_seguro,
+        numero_poliza,
+        Aseguradora,
+        Fecha_inicio_vigencia
+    )
+    VALUES (
+           v_estado_poliza,
+           p_id_seguro,
+           p_numero_poliza,
+           TRIM(p_aseguradora),
+           p_fecha_inicio_vigencia
+    );
 
-    -- trg_motocicleta_bi valida los datos, la placa y el seguro unicos.
-    INSERT INTO `MOTOCICLETA`
-        (`Estado_motocicleta`, `Kilometraje_actual`, `Precio_alquiler`, `Cilindraje`, `Año`,
-         `modelo`, `Marca`, `Placa`, `Numero_documento`, `Id_seguro`)
-    VALUES
-        ('DISPONIBLE', p_kilometraje, p_precio_alquiler, p_cilindraje, p_anio,
-         p_modelo, p_marca, p_placa, p_arrendador, p_id_seguro);
+    INSERT INTO MOTOCICLETA (
+        Estado_motocicleta,
+        Kilometraje_actual,
+        Precio_alquiler,
+        Cilindraje,
+        `Año`,
+        modelo,
+        Marca,
+        Placa,
+        Numero_documento,
+        Id_seguro,
+        Color,
+        Descripcion
+    )
+    VALUES (
+           'DISPONIBLE',
+           p_kilometraje,
+           p_precio_alquiler,
+           p_cilindraje,
+           p_anio,
+           p_modelo,
+           p_marca,
+           p_placa,
+           p_arrendador,
+           p_id_seguro,
+           NULLIF(TRIM(p_color), ''),
+           NULLIF(TRIM(p_descripcion), '')
+       );
 
     COMMIT;
 END$$
+
 
 -- 4) Catalogo de motos que se pueden alquilar en un rango de fechas.
 DROP PROCEDURE IF EXISTS `sp_listar_motos_disponibles`$$
@@ -747,12 +794,79 @@ BEGIN
            m.`Estado_motocicleta`,
            m.`Numero_documento`    AS `Documento_arrendador`,
            fn_nombre_completo(m.`Numero_documento`) AS `Nombre_arrendador`,
-           fn_calcular_valor_alquiler(m.`Placa`, m.`Numero_documento`,
-                                      p_fecha_inicio, p_fecha_fin) AS `Valor_estimado`
-      FROM `MOTOCICLETA` m
+           s.`Id_seguro` AS `Id_seguro`,
+           s.`numero_poliza` AS `Numero_poliza`,
+           s.`Aseguradora`,
+           s.`Fecha_inicio_vigencia`,
+           s.`Estado_poliza`,
+           fn_calcular_valor_alquiler(
+                   m.`Placa`,
+                   m.`Numero_documento`,
+                   p_fecha_inicio,
+                   p_fecha_fin
+           ) AS `Valor_estimado`
+    FROM `MOTOCICLETA` m
+             JOIN `SEGURO` s
+                  ON s.`Id_seguro` = m.`Id_seguro`
      WHERE fn_moto_disponible(m.`Placa`, m.`Numero_documento`,
                               p_fecha_inicio, p_fecha_fin, NULL) = 1
      ORDER BY m.`Precio_alquiler`;
+END$$
+
+-- 5) Cambia el estado de una moto del arrendador, validando que exista, que el estado sea permitido y que no esté arrendada.
+DROP PROCEDURE IF EXISTS sp_cambiar_estado_motocicleta;
+CREATE PROCEDURE sp_cambiar_estado_motocicleta(
+    IN p_placa CHAR(10),
+    IN p_documento_arrendador INT,
+    IN p_estado CHAR(20)
+)
+BEGIN
+    DECLARE v_estado_actual CHAR(20);
+    DECLARE v_encontrada BOOLEAN DEFAULT TRUE;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND
+        SET v_encontrada = FALSE;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+BEGIN
+ROLLBACK;
+RESIGNAL;
+END;
+
+    IF UPPER(TRIM(p_estado)) NOT IN
+       ('DISPONIBLE', 'ARRENDADA', 'MANTENIMIENTO', 'INACTIVA') THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Estado de motocicleta inválido.',
+                MYSQL_ERRNO = 45001;
+END IF;
+
+START TRANSACTION;
+
+SELECT Estado_motocicleta
+INTO v_estado_actual
+FROM MOTOCICLETA
+WHERE Placa = p_placa
+  AND Numero_documento = p_documento_arrendador
+    FOR UPDATE;
+
+IF NOT v_encontrada THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Motocicleta no encontrada.',
+                MYSQL_ERRNO = 45004;
+END IF;
+
+    IF v_estado_actual = 'ARRENDADA' THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'No se puede cambiar el estado de una moto arrendada.',
+                MYSQL_ERRNO = 45008;
+END IF;
+
+UPDATE MOTOCICLETA
+SET Estado_motocicleta = UPPER(TRIM(p_estado))
+WHERE Placa = p_placa
+  AND Numero_documento = p_documento_arrendador;
+
+COMMIT;
 END$$
 
 -- 5) Crea la solicitud y su contrato PENDIENTE en una sola transaccion.
@@ -1447,3 +1561,10 @@ DELIMITER ;
 -- Nota sobre Telefono INT: un celular colombiano de 10 digitos (3001234567)
 -- supera el maximo de INT (2147483647). Se recomienda cambiar la columna a
 -- VARCHAR(20) o BIGINT en el script de tablas antes de poblar datos reales.
+
+
+
+-- Ejecutar una sola vez por base de datos.
+ALTER TABLE MOTOCICLETA
+    ADD COLUMN Color VARCHAR(30) NULL,
+    ADD COLUMN Descripcion VARCHAR(200) NULL;
