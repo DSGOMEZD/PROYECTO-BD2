@@ -13,15 +13,6 @@
       <input type="password" name="contrasena" [(ngModel)]="datos.contrasena" placeholder="••••••••" />
     </label>
 
-    <!-- TEMPORAL: quitar cuando el back devuelva el rol -->
-    <label class="field field-temp">
-      Entrar como (temporal)
-      <select name="rolTemporal" [(ngModel)]="rolTemporal">
-        @for (rol of roles; track rol) {
-          <option [value]="rol">{{ rol }}</option>
-        }
-      </select>
-    </label>
 
     <button type="submit" class="btn btn-primary">Iniciar sesión</button>
 

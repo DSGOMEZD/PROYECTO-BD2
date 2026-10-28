@@ -10,10 +10,17 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.basesdatos2.backendBD2.modelo.dto.ErrorResponseDTO;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+
     @ExceptionHandler(ReglaNegocioException.class)
     public ResponseEntity<ErrorResponseDTO> reglaNegocio(ReglaNegocioException ex) {
         return ResponseEntity.status(MapeoErroresSQL.aHttp(ex.getCodigo()))
@@ -35,6 +42,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ErrorResponseDTO> errorBaseDatos(DataAccessException ex) {
+
+        log.error("Error al consultar la base de datos", ex);
+
         SQLException sql = MapeoErroresSQL.buscarErrorNegocio(ex);
         if (sql != null) {
             return ResponseEntity.status(MapeoErroresSQL.aHttp(sql.getErrorCode()))

@@ -5,6 +5,7 @@ import { RegistroRequest } from '../../../core/models/auth.model';
 import { Rol } from '../../../core/models/rol.model';
 import { TipoDocumento } from '../../../core/models/usuario.model';
 import { rutaDashboard } from '../../../core/utils/rutas';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-registro',
@@ -34,10 +35,18 @@ export class RegistroComponent {
     rol: Rol.ARRENDATARIO
   };
 
-  constructor(private router: Router) {}
+  constructor(
+    private router: Router,
+    private authService: AuthService
+  ) {}
 
   registrar() {
-    // TODO: llamar a authService.registrar(this.datos) antes de navegar
-    this.router.navigate([rutaDashboard(this.datos.rol)]);
+    this.authService.registrar(this.datos).subscribe({
+      next: () => this.router.navigate(['/login']),
+      error: err => {
+        console.error('Error en el registro:', err);
+        alert(err.error?.mensaje ?? 'No se pudo completar el registro.');
+      }
+    });
   }
 }

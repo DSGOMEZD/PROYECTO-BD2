@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { LoginRequest } from '../../../core/models/auth.model';
 import { Rol } from '../../../core/models/rol.model';
 import { rutaDashboard } from '../../../core/utils/rutas';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-login',
@@ -20,10 +21,20 @@ export class LoginComponent {
   rolTemporal: Rol = Rol.ARRENDATARIO;
   roles = Object.values(Rol);
 
-  constructor(private router: Router) {}
+  constructor(
+    private router: Router,
+    private authService: AuthService
+  ) {}
 
   iniciarSesion() {
-    // TODO: llamar a authService.login(this.datos) y usar el rol que responda el back
-    this.router.navigate([rutaDashboard(this.rolTemporal)]);
+    this.authService.login(this.datos).subscribe({
+      next: usuario => {
+        this.router.navigate([rutaDashboard(usuario.rol)]);
+      },
+      error: err => {
+        console.error('Error en el login:', err);
+        alert(err.error?.mensaje ?? err.error?.message ?? 'No se pudo iniciar sesión.');
+      }
+    });
   }
 }

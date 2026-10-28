@@ -35,6 +35,10 @@ export class MotosDisponiblesComponent implements OnInit {
   mensajeExito = '';
 
   hoy = hoyISO();
+  fechaInicioBusqueda = '';
+  fechaFinBusqueda = '';
+  errorCatalogo = '';
+  catalogoConsultado = false;
 
   constructor(
     private motoService: MotoService,
@@ -42,10 +46,7 @@ export class MotosDisponiblesComponent implements OnInit {
   ) {}
 
   ngOnInit() {
-    this.motoService.listarDisponibles().subscribe(motos => {
-      this.motos = motos;
-      this.cargando = false;
-    });
+    this.cargando = false;
   }
 
   get motosFiltradas(): Motocicleta[] {
@@ -65,7 +66,12 @@ export class MotosDisponiblesComponent implements OnInit {
 
   abrirSolicitud(moto: Motocicleta) {
     this.motoSeleccionada = moto;
-    this.solicitud = { ...this.solicitudVacia(), placa: moto.placa };
+    this.solicitud = {
+      ...this.solicitudVacia(),
+      placa: moto.placa,
+      fechaInicio: this.fechaInicioBusqueda,
+      fechaFin: this.fechaFinBusqueda
+    };
     this.error = '';
   }
 
@@ -121,5 +127,42 @@ export class MotosDisponiblesComponent implements OnInit {
 
   private solicitudVacia(): NuevaSolicitudRequest {
     return { placa: '', fechaInicio: '', fechaFin: '', mensaje: '' };
+  }
+
+  buscarDisponibles() {
+    this.errorCatalogo = '';
+
+    if (!this.fechaInicioBusqueda || !this.fechaFinBusqueda) {
+      this.errorCatalogo = 'Selecciona las fechas de inicio y fin.';
+      return;
+    }
+
+    if (this.fechaInicioBusqueda <= this.hoy) {
+      this.errorCatalogo = 'La fecha de inicio debe ser posterior a hoy.';
+      return;
+    }
+
+    if (this.fechaFinBusqueda <= this.fechaInicioBusqueda) {
+      this.errorCatalogo = 'La fecha de fin debe ser posterior a la fecha de inicio.';
+      return;
+    }
+
+    this.cargando = true;
+
+    this.motoService.listarDisponibles(
+      this.fechaInicioBusqueda,
+      this.fechaFinBusqueda
+    ).subscribe({
+      next: motos => {
+        this.motos = motos;
+        this.catalogoConsultado = true;
+        this.cargando = false;
+      },
+      error: err => {
+        this.errorCatalogo =
+          err.error?.mensaje ?? 'No se pudo cargar el catálogo.';
+        this.cargando = false;
+      }
+    });
   }
 }

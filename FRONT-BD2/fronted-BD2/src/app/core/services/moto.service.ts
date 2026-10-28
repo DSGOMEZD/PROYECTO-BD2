@@ -4,7 +4,8 @@ import { environment } from '../../../environments/environment';
 import { EstadoMoto, Motocicleta, MotoRequest } from '../models/motocicleta.model';
 import { Seguro } from '../models/seguro.model';
 import { DOCUMENTO_ARRENDADOR_PRUEBA, MOTOS_PRUEBA, NOMBRE_ARRENDADOR_PRUEBA } from '../mocks/datos-prueba';
-
+import { HttpClient } from '@angular/common/http';
+import { AuthService } from './auth.service';
 /**
  * Servicio de motocicletas.
  * Por ahora trabaja sobre los datos simulados en memoria; cuando exista el back,
@@ -15,58 +16,89 @@ export class MotoService {
 
   private apiUrl = `${environment.apiUrl}/motos`;
 
+  constructor(
+    private http: HttpClient,
+    private authService: AuthService
+  ) {}
   // ===== Arrendatario =====
 
   // TODO: return this.http.get<Motocicleta[]>(`${this.apiUrl}?estado=DISPONIBLE`);
-  listarDisponibles(): Observable<Motocicleta[]> {
-    return of(MOTOS_PRUEBA.filter(m => m.estado === 'DISPONIBLE')).pipe(delay(300));
+  listarDisponibles(fechaInicio: string, fechaFin: string): Observable<Motocicleta[]> {
+    return this.http.get<Motocicleta[]>(`${this.apiUrl}/disponibles`, {
+      params: { fechaInicio, fechaFin }
+    });
   }
 
   // ===== Arrendador =====
 
   // TODO: return this.http.get<Motocicleta[]>(`${this.apiUrl}/mias`);
   listarMias(): Observable<Motocicleta[]> {
-    return of(MOTOS_PRUEBA.filter(m => m.documentoArrendador === DOCUMENTO_ARRENDADOR_PRUEBA)).pipe(delay(300));
+    const usuario = this.authService.obtenerUsuario();
+
+    if (!usuario) {
+      return throwError(() => new Error('Debes iniciar sesión.'));
+    }
+
+    return this.http.get<Motocicleta[]>(`${this.apiUrl}/mias`, {
+      params: {
+        documentoArrendador: usuario.numeroDocumento
+      }
+    });
   }
 
   // TODO: return this.http.post<Motocicleta>(this.apiUrl, datos);
-  publicar(datos: MotoRequest): Observable<Motocicleta> {
-    if (MOTOS_PRUEBA.some(m => m.placa === datos.placa)) {
-      return throwError(() => new Error(`Ya existe una moto con la placa ${datos.placa}.`));
+  publicar(datos: MotoRequest): Observable<number> {
+    const usuario = this.authService.obtenerUsuario();
+
+    if (!usuario) {
+      return throwError(() => new Error('Debes iniciar sesión.'));
     }
-    const idSeguro = Math.max(0, ...MOTOS_PRUEBA.map(m => m.seguro?.idSeguro ?? 0)) + 1;
-    const nueva: Motocicleta = {
-      ...this.aMoto(datos),
-      estado: 'DISPONIBLE',
-      documentoArrendador: DOCUMENTO_ARRENDADOR_PRUEBA,
-      nombreArrendador: NOMBRE_ARRENDADOR_PRUEBA,
-      seguro: this.aSeguro(datos, idSeguro)
-    };
-    MOTOS_PRUEBA.push(nueva);
-    return of(nueva).pipe(delay(300));
+
+    return this.http.post<number>(this.apiUrl, datos, {
+      params: {
+        documentoArrendador: usuario.numeroDocumento
+      }
+    });
   }
 
   // TODO: return this.http.put<Motocicleta>(`${this.apiUrl}/${placa}`, datos);
-  actualizar(placa: string, datos: MotoRequest): Observable<Motocicleta> {
-    const moto = this.buscarMia(placa);
-    if (!moto) return throwError(() => new Error('La moto no existe'));
-    Object.assign(moto, this.aMoto(datos), {
-      placa, // la placa es la llave, no se cambia
-      seguro: this.aSeguro(datos, moto.seguro?.idSeguro ?? 0)
-    });
-    return of(moto).pipe(delay(300));
+  actualizar(placa: string, datos: MotoRequest): Observable<void> {
+    const usuario = this.authService.obtenerUsuario();
+
+    if (!usuario) {
+      return throwError(() => new Error('Debes iniciar sesión.'));
+    }
+
+    return this.http.put<void>(
+      `${this.apiUrl}/${encodeURIComponent(placa)}`,
+      datos,
+      {
+        params: {
+          documentoArrendador: usuario.numeroDocumento
+        }
+      }
+    );
   }
 
   // TODO: return this.http.patch<Motocicleta>(`${this.apiUrl}/${placa}/estado`, { estado });
-  cambiarEstado(placa: string, estado: EstadoMoto): Observable<Motocicleta> {
-    const moto = this.buscarMia(placa);
-    if (!moto) return throwError(() => new Error('La moto no existe'));
-    if (moto.estado === 'ARRENDADA') {
-      return throwError(() => new Error('No puedes cambiar el estado de una moto con un contrato vigente.'));
+  cambiarEstado(placa: string, estado: EstadoMoto): Observable<void> {
+    const usuario = this.authService.obtenerUsuario();
+
+    if (!usuario) {
+      return throwError(() => new Error('Debes iniciar sesión.'));
     }
-    moto.estado = estado;
-    return of(moto).pipe(delay(300));
+
+    return this.http.patch<void>(
+      `${this.apiUrl}/${encodeURIComponent(placa)}/estado`,
+      { estado },
+      {
+        params: {
+          documentoArrendador: usuario.numeroDocumento
+        }
+      }
+    );
   }
+
 
   private buscarMia(placa: string): Motocicleta | undefined {
     return MOTOS_PRUEBA.find(m => m.placa === placa && m.documentoArrendador === DOCUMENTO_ARRENDADOR_PRUEBA);

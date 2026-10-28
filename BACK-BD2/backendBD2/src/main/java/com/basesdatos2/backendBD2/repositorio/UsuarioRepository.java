@@ -50,10 +50,8 @@ public class UsuarioRepository {
                     TipoDocumento.valueOf(rs.getString("Tipo_documento").trim()));
             usuario.setNumeroDocumento(rs.getInt("Numero_documento"));
             usuario.setPrimerNombre(rs.getString("Primer_nombre").trim());
-            usuario.setSegundoNombre(rs.getString("Segundo_nombre").trim());
-            usuario.setPrimerApellido(rs.getString("Primer_apellido").trim());
-            usuario.setSegundoApellido(rs.getString("Segundo_apellido").trim());
-            usuario.setTelefono(rs.getInt("Telefono"));
+            usuario.setSegundoNombre(textoOpcional(rs.getString("Segundo_nombre")));            usuario.setPrimerApellido(rs.getString("Primer_apellido").trim());
+            usuario.setSegundoApellido(textoOpcional(rs.getString("Segundo_apellido")));            usuario.setTelefono(rs.getInt("Telefono"));
             usuario.setCorreo(rs.getString("Correo").trim());
             usuario.setFechaRegistro(rs.getDate("Fecha_registro").toLocalDate());
             usuario.setEstado(
@@ -64,5 +62,8 @@ public class UsuarioRepository {
         }, correo.trim());
 
         return usuarios.stream().findFirst();
+    }
+    private String textoOpcional(String valor) {
+        return valor == null ? null : valor.trim();
     }
 }

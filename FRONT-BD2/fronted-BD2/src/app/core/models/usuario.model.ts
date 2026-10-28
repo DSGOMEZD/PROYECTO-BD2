@@ -9,6 +9,7 @@ export interface Usuario {
   nombre: string;
   apellido: string;
   correo: string;
-  telefono: string;
+  telefono: number | null;
+  estado?: string;
   rol: Rol;
 }

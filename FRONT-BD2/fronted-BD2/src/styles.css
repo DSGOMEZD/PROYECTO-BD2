@@ -451,3 +451,34 @@ a:hover { text-decoration: underline; }
   .contratos-grid { grid-template-columns: 1fr; }
   .rol-selector { flex-direction: column; }
 }
+
+.busqueda-fechas {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  background: var(--white);
+  padding: 16px;
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.busqueda-fechas .field {
+  margin-bottom: 0;
+}
+
+.busqueda-fechas .btn {
+  height: 42px;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .busqueda-fechas {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .busqueda-fechas .btn {
+    grid-column: 1 / -1;
+  }
+}

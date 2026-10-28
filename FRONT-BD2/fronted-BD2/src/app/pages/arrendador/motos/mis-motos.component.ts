@@ -86,16 +86,21 @@ export class MisMotosComponent implements OnInit {
     this.error = this.validar();
     if (this.error) return;
 
-    const peticion: Observable<Motocicleta> = this.placaEditando
-      ? this.motoService.actualizar(this.placaEditando, this.form)
+    const marca = this.form.marca;
+    const modelo = this.form.modelo;
+    const esEdicion = !!this.placaEditando;
+
+    const peticion: Observable<unknown> = esEdicion
+      ? this.motoService.actualizar(this.placaEditando!, this.form)
       : this.motoService.publicar(this.form);
 
     this.guardando = true;
     peticion.subscribe({
-      next: m => {
-        this.mensajeExito = this.placaEditando
-          ? `Se actualizó la ${m.marca} ${m.modelo}.`
-          : `Publicaste la ${m.marca} ${m.modelo}. Ya aparece en el catálogo de motos disponibles.`;
+      next: () => {
+        this.mensajeExito = esEdicion
+          ? `Se actualizó la ${marca} ${modelo}.`
+          : `Publicaste la ${marca} ${modelo}.`;
+
         this.guardando = false;
         this.cerrarForm();
         this.cargar();

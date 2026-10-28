@@ -8,10 +8,7 @@ export interface LoginRequest {
 }
 
 // Lo que el back RESPONDE al iniciar sesión
-export interface LoginResponse {
-  token: string;
-  usuario: Usuario;
-}
+export type LoginResponse = Usuario;
 
 // Lo que el front ENVÍA al back para registrar un usuario
 export interface RegistroRequest {

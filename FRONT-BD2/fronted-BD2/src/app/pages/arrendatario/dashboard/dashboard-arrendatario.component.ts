@@ -31,8 +31,16 @@ export class DashboardArrendatarioComponent implements OnInit {
   ) {}
 
   ngOnInit() {
+    const inicio = new Date();
+    inicio.setDate(inicio.getDate() + 1);
+
+    const fin = new Date(inicio);
+    fin.setDate(fin.getDate() + 1);
     forkJoin({
-      motos: this.motoService.listarDisponibles(),
+      motos: this.motoService.listarDisponibles(
+        this.fechaISO(inicio),
+        this.fechaISO(fin)
+      ),
       solicitudes: this.solicitudService.listarMias(),
       contratos: this.contratoService.listarMios(),
       pagos: this.pagoService.listarMios()
@@ -45,5 +53,10 @@ export class DashboardArrendatarioComponent implements OnInit {
         .sort((a, b) => a.fechaVencimiento.localeCompare(b.fechaVencimiento))[0];
       this.cargando = false;
     });
+  }
+  private fechaISO(fecha: Date): string {
+    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+    const dia = String(fecha.getDate()).padStart(2, '0');
+    return `${fecha.getFullYear()}-${mes}-${dia}`;
   }
 }

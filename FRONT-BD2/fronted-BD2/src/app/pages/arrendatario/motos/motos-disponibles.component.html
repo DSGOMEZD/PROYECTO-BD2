@@ -7,28 +7,56 @@
     <button type="button" class="alerta-cerrar" (click)="mensajeExito = ''" aria-label="Cerrar">×</button>
   </div>
 }
+<div class="busqueda-fechas">
+  <label class="field">
+    Fecha de inicio
+    <input type="date" name="fechaInicioBusqueda"
+           [(ngModel)]="fechaInicioBusqueda" [min]="hoy" />
+  </label>
+
+  <label class="field">
+    Fecha de fin
+    <input type="date" name="fechaFinBusqueda"
+           [(ngModel)]="fechaFinBusqueda"
+           [min]="fechaInicioBusqueda || hoy" />
+  </label>
+
+  <button type="button" class="btn btn-sm"
+          [disabled]="cargando" (click)="buscarDisponibles()">
+    Buscar motos
+  </button>
+</div>
+
+@if (errorCatalogo) {
+  <p class="error">{{ errorCatalogo }}</p>
+}
 
 <div class="filtros">
   <label class="field">
     Buscar
-    <input type="search" [(ngModel)]="busqueda" placeholder="Marca o modelo" />
+    <input type="search" name="busqueda" [(ngModel)]="busqueda"
+           placeholder="Marca o modelo" />
   </label>
+
   <label class="field">
     Cilindraje
-    <select [(ngModel)]="cilindraje">
+    <select name="cilindraje" [(ngModel)]="cilindraje">
       <option value="TODAS">Todos</option>
       <option value="BAJO">Hasta 150 cc</option>
       <option value="MEDIO">151 a 300 cc</option>
       <option value="ALTO">Más de 300 cc</option>
     </select>
   </label>
+
   <label class="field">
     Precio máximo por día
-    <input type="number" min="0" step="10000" [(ngModel)]="precioMaximo" placeholder="Sin límite" />
+    <input type="number" name="precioMaximo" min="0" step="10000"
+           [(ngModel)]="precioMaximo" placeholder="Sin límite" />
   </label>
+
   <label class="field">
     Ordenar por
-    <select [(ngModel)]="orden">
+    <select name="orden" [(ngModel)]="orden">
       <option value="PRECIO_ASC">Menor precio</option>
       <option value="PRECIO_DESC">Mayor precio</option>
     </select>
@@ -37,6 +65,8 @@
 
 @if (cargando) {
   <p class="vacio">Cargando motos…</p>
+} @else if (!catalogoConsultado) {
+  <p class="vacio">Selecciona las fechas y pulsa “Buscar motos”.</p>
 } @else {
   <p class="resultados">{{ motosFiltradas.length }} de {{ motos.length }} motos</p>
 

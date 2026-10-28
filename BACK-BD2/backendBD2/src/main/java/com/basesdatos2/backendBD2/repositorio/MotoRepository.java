@@ -37,8 +37,8 @@ public class MotoRepository {
                                 rs.getString("Placa").trim(),
                                 rs.getString("Marca").trim(),
                                 rs.getString("Modelo").trim(),
-                                rs.getString("Color"),
-                                rs.getString("Descripcion"),
+                                null,
+                                null,
                                 rs.getInt("Anio"),
                                 rs.getBigDecimal("Cilindraje"),
                                 rs.getInt("Kilometraje_actual"),
@@ -47,13 +47,7 @@ public class MotoRepository {
                                         rs.getString("Estado_motocicleta").trim()),
                                 rs.getInt("Documento_arrendador"),
                                 rs.getString("Nombre_arrendador").trim(),
-                                new SeguroResponseDTO(
-                                        rs.getInt("Id_seguro"),
-                                        rs.getInt("Numero_poliza"),
-                                        rs.getString("Aseguradora").trim(),
-                                        rs.getDate("Fecha_inicio_vigencia").toLocalDate(),
-                                        EstadoPoliza.valueOf(rs.getString("Estado_poliza").trim())
-                                ),// El procedimiento no devuelve el seguro.
+                                null,// El procedimiento no devuelve el seguro.
                                 rs.getInt("Valor_estimado")
                         ),
                 fechaInicio,
