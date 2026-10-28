@@ -45,8 +45,34 @@
             <span>Recibido {{ totalPagado(c) | currency:'COP':'symbol-narrow':'1.0-0' }}</span>
             <span>{{ porcentajePagado(c) }}%</span>
           </div>
-          <div class="progreso-barra"><span [style.width.%]="porcentajePagado(c)"></span></div>
+          <div class="progreso-barra">
+            <span [style.width.%]="porcentajePagado(c)"></span>
+          </div>
         </div>
+
+        @if (puedeFinalizar(c)) {
+          <section class="finalizar-panel">
+            <strong>Devolución de la moto</strong>
+            <label>
+              Kilometraje final
+              <input
+                type="number"
+                min="0"
+                step="1"
+                [(ngModel)]="kilometrajeFinal[c.idContrato]"
+                [name]="'kilometraje-' + c.idContrato"
+                placeholder="Ej. 5200"
+              />
+            </label>
+            <button
+              type="button"
+              class="btn-finalizar"
+              [disabled]="finalizando === c.idContrato || !kilometrajeValido(c)"
+              (click)="finalizar(c)">
+              {{ finalizando === c.idContrato ? 'Finalizando…' : 'Finalizar contrato' }}
+            </button>
+          </section>
+        }
 
         <div class="contrato-footer">
           <span class="celda-sub">
@@ -58,12 +84,17 @@
           </span>
           <div class="acciones">
             @if (c.estado === 'VIGENTE') {
-              <button type="button" class="btn btn-outline btn-peligro" [disabled]="cancelando === c.idContrato"
-                      (click)="cancelar(c)">
+              <button
+                type="button"
+                class="btn btn-outline btn-peligro"
+                [disabled]="cancelando === c.idContrato"
+                (click)="cancelar(c)">
                 {{ cancelando === c.idContrato ? 'Cancelando…' : 'Cancelar' }}
               </button>
             }
-            <a [routerLink]="'../pagos'" [queryParams]="{ contrato: c.idContrato }" class="btn btn-outline">Ver pagos</a>
+            <a [routerLink]="'../pagos'"
+               [queryParams]="{ contrato: c.idContrato }"
+               class="btn btn-outline">Ver pagos</a>
           </div>
         </div>
       </article>

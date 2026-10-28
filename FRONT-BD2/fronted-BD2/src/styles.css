@@ -482,3 +482,74 @@ a:hover { text-decoration: underline; }
     grid-column: 1 / -1;
   }
 }
+
+.btn-pagar {
+  background: var(--primary);
+  color: var(--white);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-pagar:hover:not(:disabled) {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+}
+
+.btn-pagar:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+.accion-pago { min-width: 230px; white-space: nowrap; }
+.acciones-pago { display: flex; align-items: center; gap: 8px; }
+.select-metodo { width: 125px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--white); }
+
+.finalizar-panel {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: #fffaf5;
+}
+
+.finalizar-panel strong {
+  color: #7c2d12;
+  font-size: 13px;
+}
+
+.finalizar-panel label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.finalizar-panel input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px;
+  border: 1px solid #d6d3d1;
+  border-radius: 7px;
+}
+
+.btn-finalizar {
+  justify-self: start;
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 7px;
+  background: #f97316;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-finalizar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

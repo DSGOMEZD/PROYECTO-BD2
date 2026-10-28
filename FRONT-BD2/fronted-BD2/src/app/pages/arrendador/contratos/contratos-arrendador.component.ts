@@ -1,18 +1,19 @@
-import { Component, OnInit } from '@angular/core';
-import { CurrencyPipe, DatePipe } from '@angular/common';
-import { RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
-import { ContratoService } from '../../../core/services/contrato.service';
-import { PagoService } from '../../../core/services/pago.service';
-import { Contrato, EstadoContrato } from '../../../core/models/contrato.model';
-import { Pago } from '../../../core/models/pago.model';
-import { EstadoBadgeComponent } from '../../../shared/components/estado-badge/estado-badge.component';
-import { diasEntre, hoyISO } from '../../../core/utils/fechas';
+import {Component, OnInit} from '@angular/core';
+import {CurrencyPipe, DatePipe} from '@angular/common';
+import {RouterLink} from '@angular/router';
+import {forkJoin} from 'rxjs';
+import {ContratoService} from '../../../core/services/contrato.service';
+import {PagoService} from '../../../core/services/pago.service';
+import {Contrato, EstadoContrato} from '../../../core/models/contrato.model';
+import {Pago} from '../../../core/models/pago.model';
+import {EstadoBadgeComponent} from '../../../shared/components/estado-badge/estado-badge.component';
+import {diasEntre, hoyISO} from '../../../core/utils/fechas';
+import {FormsModule} from '@angular/forms';
 
 @Component({
   selector: 'app-contratos-arrendador',
   standalone: true,
-  imports: [RouterLink, CurrencyPipe, DatePipe, EstadoBadgeComponent],
+  imports: [RouterLink, CurrencyPipe, DatePipe, EstadoBadgeComponent, FormsModule],
   templateUrl: './contratos-arrendador.component.html'
 })
 export class ContratosArrendadorComponent implements OnInit {
@@ -24,11 +25,14 @@ export class ContratosArrendadorComponent implements OnInit {
   estados: (EstadoContrato | 'TODOS')[] = ['VIGENTE', 'FINALIZADO', 'CANCELADO', 'TODOS'];
   mensajeExito = '';
   cancelando?: number;
+  finalizando?: number;
+  kilometrajeFinal: Record<number, number | null> = {};
 
   constructor(
     private contratoService: ContratoService,
     private pagoService: PagoService
-  ) {}
+  ) {
+  }
 
   ngOnInit() {
     this.cargar();
@@ -79,10 +83,44 @@ export class ContratosArrendadorComponent implements OnInit {
     forkJoin({
       contratos: this.contratoService.listarComoArrendador(),
       pagos: this.pagoService.listarRecibidos()
-    }).subscribe(({ contratos, pagos }) => {
+    }).subscribe(({contratos, pagos}) => {
       this.contratos = contratos.sort((a, b) => b.fechaInicio.localeCompare(a.fechaInicio));
       this.pagos = pagos;
       this.cargando = false;
     });
+  }
+
+  puedeFinalizar(c: Contrato): boolean {
+    return c.estado === 'VIGENTE'
+      && c.fechaInicio <= hoyISO()
+      && this.totalPagado(c) >= c.valorTotal;
+  }
+
+  finalizar(c: Contrato): void {
+    const km = this.kilometrajeFinal[c.idContrato];
+
+    if (km == null || !Number.isInteger(km) || km < 0) {
+      alert('Ingresa un kilometraje final válido.');
+      return;
+    }
+
+    this.finalizando = c.idContrato;
+
+    this.contratoService.finalizar(c.idContrato, km).subscribe({
+      next: () => {
+        this.mensajeExito = `Finalizaste el contrato #${c.idContrato}.`;
+        this.finalizando = undefined;
+        this.cargar();
+      },
+      error: err => {
+        alert(err?.error?.mensaje ?? 'No se pudo finalizar el contrato.');
+        this.finalizando = undefined;
+      }
+    });
+  }
+
+  kilometrajeValido(c: Contrato): boolean {
+    const km = this.kilometrajeFinal[c.idContrato];
+    return km != null && Number.isInteger(km) && km >= 0;
   }
 }
