@@ -1,5 +1,6 @@
 package com.basesdatos2.backendBD2.controlador;
 
+import com.basesdatos2.backendBD2.modelo.dto.AprobarSolicitudRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.ContratoResponseDTO;
 import com.basesdatos2.backendBD2.modelo.dto.SolicitudRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.SolicitudResponseDTO;
@@ -50,10 +51,11 @@ public class SolicitudController {
     @PostMapping("/{id}/aprobar")
     public ResponseEntity<ContratoResponseDTO> aprobar(
             @PathVariable Integer id,
-            @RequestParam Integer documentoArrendador
+            @RequestParam Integer documentoArrendador,
+            @Valid @RequestBody AprobarSolicitudRequestDTO dto
     ) {
         return ResponseEntity.ok(
-                solicitudService.aprobar(id, documentoArrendador)
+                solicitudService.aprobar(id, documentoArrendador, dto.deposito())
         );
     }
 
@@ -63,6 +65,15 @@ public class SolicitudController {
             @RequestParam Integer documentoArrendador
     ) {
         solicitudService.rechazar(id, documentoArrendador);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}/cancelar")
+    public ResponseEntity<Void> cancelar(
+            @PathVariable Integer id,
+            @RequestParam Integer documentoArrendatario
+    ) {
+        solicitudService.cancelar(id, documentoArrendatario);
         return ResponseEntity.noContent().build();
     }
 }

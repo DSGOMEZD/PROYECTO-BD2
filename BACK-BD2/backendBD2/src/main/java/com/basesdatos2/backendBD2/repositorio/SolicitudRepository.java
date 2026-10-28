@@ -62,9 +62,9 @@ public class SolicitudRepository {
     public List<SolicitudResponseDTO> listarMias(Integer documentoArrendatario) {
         return jdbcTemplate.query(
                 sqlBase() + """
-                WHERE s.Numero_documento = ?
-                ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
-                """,
+                        WHERE s.Numero_documento = ?
+                        ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
+                        """,
                 this::mapearSolicitud,
                 documentoArrendatario
         );
@@ -73,9 +73,9 @@ public class SolicitudRepository {
     public List<SolicitudResponseDTO> listarRecibidas(Integer documentoArrendador) {
         return jdbcTemplate.query(
                 sqlBase() + """
-                WHERE s.Numero_documento2 = ?
-                ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
-                """,
+                        WHERE s.Numero_documento2 = ?
+                        ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
+                        """,
                 this::mapearSolicitud,
                 documentoArrendador
         );
@@ -145,37 +145,51 @@ public class SolicitudRepository {
         );
     }
 
-    public ContratoResponseDTO aprobar(Integer idSolicitud, Integer documentoArrendador) {
-        responder(idSolicitud, documentoArrendador, "APROBADA");
+    public ContratoResponseDTO aprobar(
+            Integer idSolicitud,
+            Integer documentoArrendador,
+            Integer deposito
+    ) {
+        jdbcTemplate.execute((java.sql.Connection con) -> {
+            try (java.sql.CallableStatement cs =
+                         con.prepareCall("{CALL sp_responder_solicitud(?, ?, ?, ?, ?)}")) {
+                cs.setInt(1, idSolicitud);
+                cs.setInt(2, documentoArrendador);
+                cs.setString(3, "APROBADA");
+                cs.setInt(4, deposito);
+                cs.registerOutParameter(5, java.sql.Types.INTEGER);
+                cs.execute();
+                return null;
+            }
+        });
 
         String sql = """
-        SELECT
-            c.id_contrato AS idContrato,
-            c.Fecha_inicio AS fechaInicio,
-            c.Fecha_fin AS fechaFin,
-            fn_calcular_valor_alquiler(
-                m.Placa, m.Numero_documento, c.Fecha_inicio, c.Fecha_fin
-            ) AS valorTotal,
-            c.Estado_contrato AS estado,
-            s.Id_solicitud AS idSolicitud,
-            c.Numero_documento AS documentoArrendatario,
-            fn_nombre_completo(c.Numero_documento) AS nombreArrendatario,
-            c.Numero_documento1 AS documentoArrendador,
-            fn_nombre_completo(c.Numero_documento1) AS nombreArrendador,
-            m.Placa AS placa,
-            m.Marca AS marca,
-            m.modelo AS modelo,
-            m.Precio_alquiler AS precioDia
-        FROM CONTRATO c
-        JOIN SOLICITUD s
-          ON s.id_contrato = c.id_contrato
-         AND s.Numero_documento1 = c.Numero_documento
-         AND s.Numero_documento11 = c.Numero_documento1
-        JOIN MOTOCICLETA m
-          ON m.Placa = s.Placa
-         AND m.Numero_documento = s.Numero_documento2
-        WHERE s.Id_solicitud = ?
-        """;
+                SELECT
+                    c.id_contrato AS idContrato,
+                    c.Fecha_inicio AS fechaInicio,
+                    c.Fecha_fin AS fechaFin,
+                    fn_calcular_valor_alquiler(
+                        m.Placa, m.Numero_documento, c.Fecha_inicio, c.Fecha_fin
+                    ) AS valorTotal,
+                    c.Deposito AS deposito,
+                    c.Estado_contrato AS estado,
+                    s.Id_solicitud AS idSolicitud,
+                    c.Numero_documento AS documentoArrendatario,
+                    fn_nombre_completo(c.Numero_documento) AS nombreArrendatario,
+                    c.Numero_documento1 AS documentoArrendador,
+                    fn_nombre_completo(c.Numero_documento1) AS nombreArrendador,
+                    m.Placa AS placa,
+                    m.Marca AS marca,
+                    m.modelo AS modelo,
+                    m.Precio_alquiler AS precioDia
+                FROM CONTRATO c
+                JOIN SOLICITUD s
+                  ON s.id_contrato = c.id_contrato
+                JOIN MOTOCICLETA m
+                  ON m.Placa = s.Placa
+                 AND m.Numero_documento = s.Numero_documento2
+                WHERE s.Id_solicitud = ?
+                """;
 
         return jdbcTemplate.queryForObject(sql, (rs, fila) ->
                         new ContratoResponseDTO(
@@ -183,6 +197,7 @@ public class SolicitudRepository {
                                 rs.getDate("fechaInicio").toLocalDate(),
                                 rs.getDate("fechaFin").toLocalDate(),
                                 rs.getInt("valorTotal"),
+                                rs.getInt("deposito"),
                                 EstadoContrato.valueOf(rs.getString("estado").trim()),
                                 rs.getInt("idSolicitud"),
                                 rs.getInt("documentoArrendatario"),
@@ -223,5 +238,19 @@ public class SolicitudRepository {
                 .addValue("p_id_solicitud", idSolicitud)
                 .addValue("p_arrendador", documentoArrendador)
                 .addValue("p_decision", decision));
+    }
+
+    public void cancelar(Integer idSolicitud, Integer documentoArrendatario) {
+        SimpleJdbcCall llamada = new SimpleJdbcCall(jdbcTemplate)
+                .withProcedureName("sp_cancelar_solicitud")
+                .withoutProcedureColumnMetaDataAccess()
+                .declareParameters(
+                        new SqlParameter("p_id_solicitud", Types.INTEGER),
+                        new SqlParameter("p_arrendatario", Types.INTEGER)
+                );
+
+        llamada.execute(new MapSqlParameterSource()
+                .addValue("p_id_solicitud", idSolicitud)
+                .addValue("p_arrendatario", documentoArrendatario));
     }
 }

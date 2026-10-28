@@ -11,10 +11,9 @@ public interface SolicitudService {
             Integer documentoArrendatario,
             SolicitudRequestDTO dto
     );
-
     List<SolicitudResponseDTO> listarMias(Integer documentoArrendatario);
-
     List<SolicitudResponseDTO> listarRecibidas(Integer documentoArrendador);
-    ContratoResponseDTO aprobar(Integer idSolicitud, Integer documentoArrendador);
+    ContratoResponseDTO  aprobar(Integer idSolicitud, Integer documentoArrendador, Integer deposito);
     void rechazar(Integer idSolicitud, Integer documentoArrendador);
+    void cancelar(Integer idSolicitud, Integer documentoArrendatario);
 }

@@ -8,6 +8,7 @@ public record ContratoResponseDTO(
         LocalDate fechaInicio,
         LocalDate fechaFin,
         Integer valorTotal,
+        Integer deposito,
         EstadoContrato estado,
         Integer idSolicitud,
         Integer documentoArrendatario,
