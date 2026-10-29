@@ -2,6 +2,8 @@ package com.basesdatos2.backendBD2.modelo;
 
 import com.basesdatos2.backendBD2.modelo.emun.EstadoMotocicleta;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 
 // Tabla MOTOCICLETA
 public class Motocicleta {
@@ -10,6 +12,8 @@ public class Motocicleta {
     private Integer documentoArrendador;   // columna Numero_documento
     private String marca;
     private String modelo;
+    private String color;
+    private String descripcion;
     private Integer anio;                  // columna Año
     private BigDecimal cilindraje;
     private Integer kilometrajeActual;
@@ -20,18 +24,26 @@ public class Motocicleta {
     public Motocicleta() {}
 
     public Motocicleta(String placa, Integer documentoArrendador, String marca, String modelo,
-                       Integer anio, BigDecimal cilindraje, Integer kilometrajeActual,
-                       Integer precioAlquiler, EstadoMotocicleta estado, Integer idSeguro) {
+                       String color, String descripcion, Integer anio, BigDecimal cilindraje,
+                       Integer kilometrajeActual, Integer precioAlquiler,
+                       EstadoMotocicleta estado, Integer idSeguro) {
         this.placa = placa;
         this.documentoArrendador = documentoArrendador;
         this.marca = marca;
         this.modelo = modelo;
+        this.color = color;
+        this.descripcion = descripcion;
         this.anio = anio;
         this.cilindraje = cilindraje;
         this.kilometrajeActual = kilometrajeActual;
         this.precioAlquiler = precioAlquiler;
         this.estado = estado;
         this.idSeguro = idSeguro;
+    }
+
+    // Igual que fn_calcular_valor_alquiler: cuenta el dia de inicio y el de fin.
+    public Integer valorAlquiler(LocalDate fechaInicio, LocalDate fechaFin) {
+        return precioAlquiler * (int) (ChronoUnit.DAYS.between(fechaInicio, fechaFin) + 1);
     }
 
     public String getPlaca() { return placa; }
@@ -45,6 +57,12 @@ public class Motocicleta {
 
     public String getModelo() { return modelo; }
     public void setModelo(String modelo) { this.modelo = modelo; }
+
+    public String getColor() { return color; }
+    public void setColor(String color) { this.color = color; }
+
+    public String getDescripcion() { return descripcion; }
+    public void setDescripcion(String descripcion) { this.descripcion = descripcion; }
 
     public Integer getAnio() { return anio; }
     public void setAnio(Integer anio) { this.anio = anio; }

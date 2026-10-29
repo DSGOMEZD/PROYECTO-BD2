@@ -6,6 +6,7 @@ import java.util.List;
 public interface ContratoService {
     List<ContratoResponseDTO> listarMios(Integer documentoArrendatario);
     List<ContratoResponseDTO> listarComoArrendador(Integer documentoArrendador);
+    ContratoResponseDTO buscarPorId(Integer idContrato);
     void cancelar(Integer idContrato, Integer documento);
     void finalizar(Integer idContrato, Integer documentoArrendador, Integer kilometrajeFinal);
-}
+}

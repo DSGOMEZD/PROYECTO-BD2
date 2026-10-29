@@ -1,10 +1,7 @@
 package com.basesdatos2.backendBD2.repositorio;
 
-import com.basesdatos2.backendBD2.modelo.dto.ContratoResponseDTO;
-import com.basesdatos2.backendBD2.modelo.dto.MotoResumenDTO;
-import com.basesdatos2.backendBD2.modelo.dto.SolicitudRequestDTO;
-import com.basesdatos2.backendBD2.modelo.dto.SolicitudResponseDTO;
-import com.basesdatos2.backendBD2.modelo.emun.EstadoContrato;
+import com.basesdatos2.backendBD2.modelo.Contrato;
+import com.basesdatos2.backendBD2.modelo.Solicitud;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoSolicitud;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.SqlOutParameter;
@@ -13,9 +10,12 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.simple.SimpleJdbcCall;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Repository
 public class SolicitudRepository {
@@ -25,10 +25,15 @@ public class SolicitudRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public SolicitudResponseDTO crear(
-            Integer documentoArrendatario,
-            SolicitudRequestDTO dto
-    ) {
+    private static final String SQL_BASE = """
+            SELECT Id_solicitud, Fecha_solicitud, Estado_solicitud, Mensaje_solicitud,
+                   Numero_documento, Placa, Numero_documento2, id_contrato
+            FROM SOLICITUD
+            """;
+
+    // sp_crear_solicitud crea la solicitud y su contrato PENDIENTE (con las fechas).
+    // Devuelve el id de la solicitud creada.
+    public Integer crear(Solicitud solicitud, Contrato contrato) {
         SimpleJdbcCall llamada = new SimpleJdbcCall(jdbcTemplate)
                 .withProcedureName("sp_crear_solicitud")
                 .withoutProcedureColumnMetaDataAccess()
@@ -44,185 +49,73 @@ public class SolicitudRepository {
 
         Map<String, Object> salida = llamada.execute(
                 new MapSqlParameterSource()
-                        .addValue("p_arrendatario", documentoArrendatario)
-                        .addValue("p_placa", dto.placa())
-                        .addValue("p_fecha_inicio", dto.fechaInicio())
-                        .addValue("p_fecha_fin", dto.fechaFin())
+                        .addValue("p_arrendatario", solicitud.getDocumentoArrendatario())
+                        .addValue("p_placa", solicitud.getPlaca())
+                        .addValue("p_fecha_inicio", contrato.getFechaInicio())
+                        .addValue("p_fecha_fin", contrato.getFechaFin())
                         // SOLICITUD.Mensaje_solicitud es NOT NULL en la BD.
                         .addValue("p_mensaje",
-                                dto.mensaje() == null ? "" : dto.mensaje())
+                                solicitud.getMensaje() == null ? "" : solicitud.getMensaje())
         );
 
-        Integer idSolicitud =
-                ((Number) salida.get("p_id_solicitud")).intValue();
-
-        return buscarPorId(idSolicitud);
+        return ((Number) salida.get("p_id_solicitud")).intValue();
     }
 
-    public List<SolicitudResponseDTO> listarMias(Integer documentoArrendatario) {
+    public List<Solicitud> listarMias(Integer documentoArrendatario) {
         return jdbcTemplate.query(
-                sqlBase() + """
-                        WHERE s.Numero_documento = ?
-                        ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
+                SQL_BASE + """
+                        WHERE Numero_documento = ?
+                        ORDER BY Fecha_solicitud DESC, Id_solicitud DESC
                         """,
-                this::mapearSolicitud,
+                this::mapear,
                 documentoArrendatario
         );
     }
 
-    public List<SolicitudResponseDTO> listarRecibidas(Integer documentoArrendador) {
+    public List<Solicitud> listarRecibidas(Integer documentoArrendador) {
         return jdbcTemplate.query(
-                sqlBase() + """
-                        WHERE s.Numero_documento2 = ?
-                        ORDER BY s.Fecha_solicitud DESC, s.Id_solicitud DESC
+                SQL_BASE + """
+                        WHERE Numero_documento2 = ?
+                        ORDER BY Fecha_solicitud DESC, Id_solicitud DESC
                         """,
-                this::mapearSolicitud,
+                this::mapear,
                 documentoArrendador
         );
     }
 
-    private SolicitudResponseDTO buscarPorId(Integer idSolicitud) {
-        List<SolicitudResponseDTO> resultados = jdbcTemplate.query(
-                sqlBase() + "WHERE s.Id_solicitud = ?",
-                this::mapearSolicitud,
-                idSolicitud
-        );
-
-        return resultados.stream()
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        "La solicitud fue creada, pero no se pudo consultar."
-                ));
+    public Optional<Solicitud> buscarPorId(Integer idSolicitud) {
+        return jdbcTemplate.query(SQL_BASE + "WHERE Id_solicitud = ?", this::mapear, idSolicitud)
+                .stream()
+                .findFirst();
     }
 
-    private String sqlBase() {
-        return """
-                SELECT
-                    s.Id_solicitud AS idSolicitud,
-                    s.Fecha_solicitud AS fechaSolicitud,
-                    c.Fecha_inicio AS fechaInicio,
-                    c.Fecha_fin AS fechaFin,
-                    s.Mensaje_solicitud AS mensaje,
-                    s.Estado_solicitud AS estado,
-                    s.Numero_documento AS documentoArrendatario,
-                    fn_nombre_completo(s.Numero_documento) AS nombreArrendatario,
-                    s.Numero_documento2 AS documentoArrendador,
-                    m.Placa AS placa,
-                    m.Marca AS marca,
-                    m.modelo AS modelo,
-                    m.Precio_alquiler AS precioDia
-                FROM SOLICITUD s
-                JOIN CONTRATO c
-                  ON c.id_contrato = s.id_contrato
-                 AND c.Numero_documento = s.Numero_documento1
-                 AND c.Numero_documento1 = s.Numero_documento11
-                JOIN MOTOCICLETA m
-                  ON m.Placa = s.Placa
-                 AND m.Numero_documento = s.Numero_documento2
-                """;
-    }
-
-    private SolicitudResponseDTO mapearSolicitud(
-            java.sql.ResultSet rs,
-            int fila
-    ) throws java.sql.SQLException {
-        return new SolicitudResponseDTO(
-                rs.getInt("idSolicitud"),
-                rs.getDate("fechaSolicitud").toLocalDate(),
-                rs.getDate("fechaInicio").toLocalDate(),
-                rs.getDate("fechaFin").toLocalDate(),
-                rs.getString("mensaje").trim(),
-                EstadoSolicitud.valueOf(rs.getString("estado").trim()),
-                rs.getInt("documentoArrendatario"),
-                rs.getString("nombreArrendatario").trim(),
-                rs.getInt("documentoArrendador"),
-                new MotoResumenDTO(
-                        rs.getString("placa").trim(),
-                        rs.getString("marca").trim(),
-                        rs.getString("modelo").trim(),
-                        rs.getInt("precioDia")
-                )
+    private Solicitud mapear(ResultSet rs, int fila) throws SQLException {
+        return new Solicitud(
+                rs.getInt("Id_solicitud"),
+                rs.getDate("Fecha_solicitud").toLocalDate(),
+                EstadoSolicitud.valueOf(rs.getString("Estado_solicitud").trim()),
+                rs.getString("Mensaje_solicitud").trim(),
+                rs.getInt("Numero_documento"),
+                rs.getString("Placa").trim(),
+                rs.getInt("Numero_documento2"),
+                rs.getInt("id_contrato")
         );
     }
 
-    public ContratoResponseDTO aprobar(
-            Integer idSolicitud,
-            Integer documentoArrendador,
-            Integer deposito
-    ) {
-        jdbcTemplate.execute((java.sql.Connection con) -> {
-            try (java.sql.CallableStatement cs =
-                         con.prepareCall("{CALL sp_responder_solicitud(?, ?, ?, ?, ?)}")) {
-                cs.setInt(1, idSolicitud);
-                cs.setInt(2, documentoArrendador);
-                cs.setString(3, "APROBADA");
-                cs.setInt(4, deposito);
-                cs.registerOutParameter(5, java.sql.Types.INTEGER);
-                cs.execute();
-                return null;
-            }
-        });
-
-        String sql = """
-                SELECT
-                    c.id_contrato AS idContrato,
-                    c.Fecha_inicio AS fechaInicio,
-                    c.Fecha_fin AS fechaFin,
-                    fn_calcular_valor_alquiler(
-                        m.Placa, m.Numero_documento, c.Fecha_inicio, c.Fecha_fin
-                    ) AS valorTotal,
-                    c.Deposito AS deposito,
-                    c.Estado_contrato AS estado,
-                    s.Id_solicitud AS idSolicitud,
-                    c.Numero_documento AS documentoArrendatario,
-                    fn_nombre_completo(c.Numero_documento) AS nombreArrendatario,
-                    c.Numero_documento1 AS documentoArrendador,
-                    fn_nombre_completo(c.Numero_documento1) AS nombreArrendador,
-                    m.Placa AS placa,
-                    m.Marca AS marca,
-                    m.modelo AS modelo,
-                    m.Precio_alquiler AS precioDia
-                FROM CONTRATO c
-                JOIN SOLICITUD s
-                  ON s.id_contrato = c.id_contrato
-                JOIN MOTOCICLETA m
-                  ON m.Placa = s.Placa
-                 AND m.Numero_documento = s.Numero_documento2
-                WHERE s.Id_solicitud = ?
-                """;
-
-        return jdbcTemplate.queryForObject(sql, (rs, fila) ->
-                        new ContratoResponseDTO(
-                                rs.getInt("idContrato"),
-                                rs.getDate("fechaInicio").toLocalDate(),
-                                rs.getDate("fechaFin").toLocalDate(),
-                                rs.getInt("valorTotal"),
-                                rs.getInt("deposito"),
-                                EstadoContrato.valueOf(rs.getString("estado").trim()),
-                                rs.getInt("idSolicitud"),
-                                rs.getInt("documentoArrendatario"),
-                                rs.getString("nombreArrendatario").trim(),
-                                rs.getInt("documentoArrendador"),
-                                rs.getString("nombreArrendador").trim(),
-                                new MotoResumenDTO(
-                                        rs.getString("placa").trim(),
-                                        rs.getString("marca").trim(),
-                                        rs.getString("modelo").trim(),
-                                        rs.getInt("precioDia")
-                                )
-                        ),
-                idSolicitud
-        );
+    public void aprobar(Integer idSolicitud, Integer documentoArrendador, Integer deposito) {
+        responder(idSolicitud, documentoArrendador, "APROBADA", deposito);
     }
 
+    // Al rechazar no hay deposito, pero el procedimiento lo exige.
     public void rechazar(Integer idSolicitud, Integer documentoArrendador) {
-        responder(idSolicitud, documentoArrendador, "RECHAZADA");
+        responder(idSolicitud, documentoArrendador, "RECHAZADA", 0);
     }
 
     private void responder(
             Integer idSolicitud,
             Integer documentoArrendador,
-            String decision
+            String decision,
+            Integer deposito
     ) {
         SimpleJdbcCall llamada = new SimpleJdbcCall(jdbcTemplate)
                 .withProcedureName("sp_responder_solicitud")
@@ -231,13 +124,15 @@ public class SolicitudRepository {
                         new SqlParameter("p_id_solicitud", Types.INTEGER),
                         new SqlParameter("p_arrendador", Types.INTEGER),
                         new SqlParameter("p_decision", Types.CHAR),
+                        new SqlParameter("p_deposito", Types.INTEGER),
                         new SqlOutParameter("p_id_pago", Types.INTEGER)
                 );
 
         llamada.execute(new MapSqlParameterSource()
                 .addValue("p_id_solicitud", idSolicitud)
                 .addValue("p_arrendador", documentoArrendador)
-                .addValue("p_decision", decision));
+                .addValue("p_decision", decision)
+                .addValue("p_deposito", deposito));
     }
 
     public void cancelar(Integer idSolicitud, Integer documentoArrendatario) {

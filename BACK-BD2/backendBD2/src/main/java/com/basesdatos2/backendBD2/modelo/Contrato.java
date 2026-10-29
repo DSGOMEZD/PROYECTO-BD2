@@ -16,12 +16,14 @@ public class Contrato {
     private Integer documentoArrendador;    // columna Numero_documento1
     private Integer idSolicitud;
     private String placa;
+    private Integer deposito;
 
     public Contrato() {}
 
     public Contrato(Integer idContrato, LocalDate fechaInicio, LocalDate fechaFin,
                     EstadoContrato estado, Integer documentoArrendatario,
-                    Integer documentoArrendador, Integer idSolicitud, String placa) {
+                    Integer documentoArrendador, Integer idSolicitud, String placa,
+                    Integer deposito) {
         this.idContrato = idContrato;
         this.fechaInicio = fechaInicio;
         this.fechaFin = fechaFin;
@@ -30,6 +32,7 @@ public class Contrato {
         this.documentoArrendador = documentoArrendador;
         this.idSolicitud = idSolicitud;
         this.placa = placa;
+        this.deposito = deposito;
     }
 
     public Integer getIdContrato() { return idContrato; }
@@ -55,4 +58,7 @@ public class Contrato {
 
     public String getPlaca() { return placa; }
     public void setPlaca(String placa) { this.placa = placa; }
+
+    public Integer getDeposito() { return deposito; }
+    public void setDeposito(Integer deposito) { this.deposito = deposito; }
 }

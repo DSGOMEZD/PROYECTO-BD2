@@ -1,6 +1,6 @@
 package com.basesdatos2.backendBD2.repositorio;
 
-import com.basesdatos2.backendBD2.modelo.dto.PagoResponseDTO;
+import com.basesdatos2.backendBD2.modelo.Pago;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoPago;
 import com.basesdatos2.backendBD2.modelo.emun.MetodoPago;
 import org.springframework.jdbc.core.CallableStatementCallback;
@@ -9,7 +9,6 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Types;
 import java.util.List;
 
 @Repository
@@ -21,37 +20,27 @@ public class PagoRepository {
     }
 
     private static final String SQL_BASE = """
-        SELECT
-            p.Id_pago AS idPago,
-            p.Monto AS monto,
-            p.Fecha_vencimiento AS fechaVencimiento,
-            p.fecha_pago AS fechaPago,
-            p.Estado AS estado,
-            p.Metodo_pago AS metodoPago,
-            p.id_contrato AS idContrato
-        FROM PAGO p
-        JOIN CONTRATO c
-          ON c.id_contrato = p.id_contrato
-         AND c.Numero_documento = p.Numero_documento
-         AND c.Numero_documento1 = p.Numero_documento1
+        SELECT Id_pago, fecha_pago, Monto, Fecha_vencimiento, Estado, Metodo_pago,
+               id_contrato, Numero_documento, Numero_documento1
+        FROM PAGO
         """;
 
-    public List<PagoResponseDTO> listarMios(Integer documentoArrendatario) {
+    public List<Pago> listarMios(Integer documentoArrendatario) {
         return jdbcTemplate.query(
                 SQL_BASE + """
-                    WHERE c.Numero_documento = ?
-                    ORDER BY p.Fecha_vencimiento, p.Id_pago
+                    WHERE Numero_documento = ?
+                    ORDER BY Fecha_vencimiento, Id_pago
                     """,
                 this::mapear,
                 documentoArrendatario
         );
     }
 
-    public List<PagoResponseDTO> listarRecibidos(Integer documentoArrendador) {
+    public List<Pago> listarRecibidos(Integer documentoArrendador) {
         return jdbcTemplate.query(
                 SQL_BASE + """
-                    WHERE c.Numero_documento1 = ?
-                    ORDER BY p.Fecha_vencimiento, p.Id_pago
+                    WHERE Numero_documento1 = ?
+                    ORDER BY Fecha_vencimiento, Id_pago
                     """,
                 this::mapear,
                 documentoArrendador
@@ -71,18 +60,17 @@ public class PagoRepository {
         );
     }
 
-    private PagoResponseDTO mapear(ResultSet rs, int fila) throws SQLException {
-        java.sql.Date fechaPago = rs.getDate("fechaPago");
-        String metodoPago = rs.getString("metodoPago");
-
-        return new PagoResponseDTO(
-                rs.getInt("idPago"),
-                rs.getInt("monto"),
-                rs.getDate("fechaVencimiento").toLocalDate(),
-                fechaPago == null ? null : fechaPago.toLocalDate(),
-                EstadoPago.valueOf(rs.getString("estado").trim()),
-                metodoPago == null ? null : MetodoPago.valueOf(metodoPago.trim()),
-                rs.getInt("idContrato")
+    private Pago mapear(ResultSet rs, int fila) throws SQLException {
+        return new Pago(
+                rs.getInt("Id_pago"),
+                rs.getDate("fecha_pago").toLocalDate(),
+                rs.getInt("Monto"),
+                rs.getDate("Fecha_vencimiento").toLocalDate(),
+                EstadoPago.valueOf(rs.getString("Estado").trim()),
+                MetodoPago.valueOf(rs.getString("Metodo_pago").trim()),
+                rs.getInt("id_contrato"),
+                rs.getInt("Numero_documento"),
+                rs.getInt("Numero_documento1")
         );
     }
 }

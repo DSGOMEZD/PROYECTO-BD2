@@ -7,28 +7,30 @@ import com.basesdatos2.backendBD2.modelo.dto.UsuarioResponseDTO;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoUsuario;
 import com.basesdatos2.backendBD2.repositorio.UsuarioRepository;
 import com.basesdatos2.backendBD2.servicio.AuthService;
+import org.modelmapper.ModelMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 @Service
 public class AuthServiceImpl implements AuthService {
     private final UsuarioRepository usuarioRepository;
+    private final ModelMapper mm;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public AuthServiceImpl(UsuarioRepository usuarioRepository) {
+    public AuthServiceImpl(UsuarioRepository usuarioRepository, ModelMapper mm) {
         this.usuarioRepository = usuarioRepository;
+        this.mm = mm;
     }
 
     @Override
     public void registrar(RegistroRequestDTO dto) {
-        String hash = passwordEncoder.encode(dto.contrasena());
-        usuarioRepository.registrar(dto, hash);
+        Usuario usuario = mm.map(dto, Usuario.class);
+        usuario.setContrasena(passwordEncoder.encode(dto.contrasena()));
+        usuarioRepository.registrar(usuario);
     }
+
     @Override
     public UsuarioResponseDTO iniciarSesion(LoginRequestDTO dto) {
         Usuario usuario = usuarioRepository.buscarPorCorreo(dto.correo())
@@ -41,23 +43,9 @@ public class AuthServiceImpl implements AuthService {
                     HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos.");
         }
 
-        String nombre = Stream.of(usuario.getPrimerNombre(), usuario.getSegundoNombre())
-                .filter(s -> s != null && !s.isBlank())
-                .collect(Collectors.joining(" "));
-
-        String apellido = Stream.of(usuario.getPrimerApellido(), usuario.getSegundoApellido())
-                .filter(s -> s != null && !s.isBlank())
-                .collect(Collectors.joining(" "));
-
-        return new UsuarioResponseDTO(
-                usuario.getNumeroDocumento(),
-                usuario.getTipoDocumento(),
-                nombre,
-                apellido,
-                usuario.getCorreo(),
-                usuario.getTelefono(),
-                usuario.getRol(),
-                usuario.getEstado()
-        );
+        UsuarioResponseDTO respuesta = mm.map(usuario, UsuarioResponseDTO.class);
+        respuesta.setNombre(usuario.nombres());
+        respuesta.setApellido(usuario.apellidos());
+        return respuesta;
     }
 }

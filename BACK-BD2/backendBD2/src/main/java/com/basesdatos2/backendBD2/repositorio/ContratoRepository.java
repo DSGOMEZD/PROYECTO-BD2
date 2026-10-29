@@ -1,7 +1,6 @@
 package com.basesdatos2.backendBD2.repositorio;
 
-import com.basesdatos2.backendBD2.modelo.dto.ContratoResponseDTO;
-import com.basesdatos2.backendBD2.modelo.dto.MotoResumenDTO;
+import com.basesdatos2.backendBD2.modelo.Contrato;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoContrato;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -13,6 +12,7 @@ import org.springframework.jdbc.core.CallableStatementCallback;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class ContratoRepository {
@@ -23,71 +23,50 @@ public class ContratoRepository {
     }
 
     private static final String SQL_BASE = """
-            SELECT
-                c.id_contrato AS idContrato,
-                c.Fecha_inicio AS fechaInicio,
-                c.Fecha_fin AS fechaFin,
-                fn_calcular_valor_alquiler(
-                    m.Placa, m.Numero_documento, c.Fecha_inicio, c.Fecha_fin
-                ) AS valorTotal,
-                c.Deposito AS deposito,
-                c.Estado_contrato AS estado,
-                c.Id_solicitud AS idSolicitud,
-                c.Numero_documento AS documentoArrendatario,
-                fn_nombre_completo(c.Numero_documento) AS nombreArrendatario,
-                c.Numero_documento1 AS documentoArrendador,
-                fn_nombre_completo(c.Numero_documento1) AS nombreArrendador,
-                m.Placa AS placa,
-                m.Marca AS marca,
-                m.modelo AS modelo,
-                m.Precio_alquiler AS precioDia
-            FROM CONTRATO c
-            JOIN MOTOCICLETA m
-              ON m.Placa = c.Placa
-             AND m.Numero_documento = c.Numero_documento21
+            SELECT id_contrato, Fecha_inicio, Fecha_fin, Estado_contrato,
+                   Numero_documento, Numero_documento1, Id_solicitud, Placa, Deposito
+            FROM CONTRATO
             """;
 
-    public List<ContratoResponseDTO> listarMios(Integer documentoArrendatario) {
+    public List<Contrato> listarMios(Integer documentoArrendatario) {
         return jdbcTemplate.query(
                 SQL_BASE + """
-                        WHERE c.Numero_documento = ?
-                        ORDER BY c.Fecha_inicio DESC, c.id_contrato DESC
+                        WHERE Numero_documento = ?
+                        ORDER BY Fecha_inicio DESC, id_contrato DESC
                         """,
                 this::mapear,
                 documentoArrendatario
         );
     }
 
-    public List<ContratoResponseDTO> listarComoArrendador(Integer documentoArrendador) {
+    public List<Contrato> listarComoArrendador(Integer documentoArrendador) {
         return jdbcTemplate.query(
                 SQL_BASE + """
-                        WHERE c.Numero_documento1 = ?
-                        ORDER BY c.Fecha_inicio DESC, c.id_contrato DESC
+                        WHERE Numero_documento1 = ?
+                        ORDER BY Fecha_inicio DESC, id_contrato DESC
                         """,
                 this::mapear,
                 documentoArrendador
         );
     }
 
-    private ContratoResponseDTO mapear(ResultSet rs, int fila) throws SQLException {
-        return new ContratoResponseDTO(
-                rs.getInt("idContrato"),
-                rs.getDate("fechaInicio").toLocalDate(),
-                rs.getDate("fechaFin").toLocalDate(),
-                rs.getInt("valorTotal"),
-                rs.getInt("deposito"),
-                EstadoContrato.valueOf(rs.getString("estado").trim()),
-                rs.getInt("idSolicitud"),
-                rs.getInt("documentoArrendatario"),
-                rs.getString("nombreArrendatario").trim(),
-                rs.getInt("documentoArrendador"),
-                rs.getString("nombreArrendador").trim(),
-                new MotoResumenDTO(
-                        rs.getString("placa").trim(),
-                        rs.getString("marca").trim(),
-                        rs.getString("modelo").trim(),
-                        rs.getInt("precioDia")
-                )
+    public Optional<Contrato> buscarPorId(Integer idContrato) {
+        return jdbcTemplate.query(SQL_BASE + "WHERE id_contrato = ?", this::mapear, idContrato)
+                .stream()
+                .findFirst();
+    }
+
+    private Contrato mapear(ResultSet rs, int fila) throws SQLException {
+        return new Contrato(
+                rs.getInt("id_contrato"),
+                rs.getDate("Fecha_inicio").toLocalDate(),
+                rs.getDate("Fecha_fin").toLocalDate(),
+                EstadoContrato.valueOf(rs.getString("Estado_contrato").trim()),
+                rs.getInt("Numero_documento"),
+                rs.getInt("Numero_documento1"),
+                rs.getInt("Id_solicitud"),
+                rs.getString("Placa").trim(),
+                rs.getInt("Deposito")
         );
     }
 
@@ -112,7 +91,7 @@ public class ContratoRepository {
     ) {
         jdbcTemplate.execute(
                 "{CALL sp_cerrar_contrato(?, ?, ?, ?)}",
-                (org.springframework.jdbc.core.CallableStatementCallback<Void>) cs -> {
+                (CallableStatementCallback<Void>) cs -> {
                     cs.setInt(1, idContrato);
                     cs.setInt(2, documentoArrendador);
                     cs.setString(3, "FINALIZADO");

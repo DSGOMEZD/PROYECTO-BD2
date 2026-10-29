@@ -3,9 +3,9 @@
 --
 -- Contenido:
 --   0. Catalogos de estados y codigos de error (excepciones)
---   1. Funciones        (8)
+--   1. Funciones        (7)
 --   2. Triggers         (10)
---   3. Procedimientos   (10, tres de ellos con cursores)
+--   3. Procedimientos   (11, dos de ellos con cursores)
 --   4. Evento programado (opcional)
 --   5. Ejemplos de uso para el backend
 --
@@ -241,20 +241,6 @@ BEGIN
            AND c.`id_contrato` <> IFNULL(p_contrato_excluido, -1)
            AND c.`Fecha_inicio` <= p_fecha_fin
            AND c.`Fecha_fin` >= p_fecha_inicio
-    );
-END$$
-
--- Total de pagos en estado PAGADO de un contrato.
-DROP FUNCTION IF EXISTS `fn_total_pagado`$$
-CREATE FUNCTION `fn_total_pagado`(p_id_contrato INT)
-RETURNS INT
-READS SQL DATA
-BEGIN
-    RETURN (
-        SELECT COALESCE(SUM(`Monto`), 0)
-          FROM `PAGO`
-         WHERE `id_contrato` = p_id_contrato
-           AND `Estado` = 'PAGADO'
     );
 END$$
 
@@ -610,60 +596,10 @@ BEGIN
     COMMIT;
 END$$
 
--- 2) Un administrador activa, inactiva o bloquea a un usuario.
---    Al inactivar/bloquear, trg_usuario_au cancela sus solicitudes pendientes.
-DROP PROCEDURE IF EXISTS `sp_cambiar_estado_usuario`$$
-CREATE PROCEDURE `sp_cambiar_estado_usuario`(
-    IN p_documento_admin INT,
-    IN p_documento       INT,
-    IN p_estado          CHAR(20)
-)
-BEGIN
-    DECLARE v_estado CHAR(20);
-
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    SET v_estado = UPPER(TRIM(p_estado));
-
-    IF v_estado IS NULL OR v_estado NOT IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO') THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado invalido (ACTIVO, INACTIVO, BLOQUEADO).', MYSQL_ERRNO = 45001;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM `ADMINISTRADOR` WHERE `Numero_documento` = p_documento_admin)
-       OR fn_usuario_activo(p_documento_admin) = 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo un administrador activo puede cambiar estados.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF p_documento_admin = p_documento THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un administrador no puede cambiar su propio estado.', MYSQL_ERRNO = 45007;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM `USUARIO` WHERE `Numero_documento` = p_documento) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El usuario no existe.', MYSQL_ERRNO = 45002;
-    END IF;
-
-    START TRANSACTION;
-
-    UPDATE `USUARIO`
-       SET `Estado` = v_estado
-     WHERE `Numero_documento` = p_documento;
-
-    COMMIT;
-END$$
-
--- 3) Registra el seguro y la motocicleta juntos (el front los envia juntos).
-DROP PROCEDURE IF EXISTS sp_registrar_motocicleta$$
-DELIMITER $$
-
-CREATE PROCEDURE sp_registrar_motocicleta(
+-- 2) Registra el seguro y la motocicleta juntos (el front los envia juntos).
+--    trg_motocicleta_bi valida los datos de la moto.
+DROP PROCEDURE IF EXISTS `sp_registrar_motocicleta`$$
+CREATE PROCEDURE `sp_registrar_motocicleta`(
     IN  p_arrendador            INT,
     IN  p_placa                 CHAR(10),
     IN  p_marca                 CHAR(50),
@@ -681,104 +617,49 @@ CREATE PROCEDURE sp_registrar_motocicleta(
     OUT p_id_seguro             INT
 )
 BEGIN
-    DECLARE v_estado_poliza CHAR(20);
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    SET v_estado_poliza = UPPER(TRIM(p_estado_poliza));
-
-    IF NOT EXISTS (
-        SELECT 1
-          FROM ARRENDADOR
-         WHERE Numero_documento = p_arrendador
-    ) OR fn_usuario_activo(p_arrendador) = 0 THEN
+    IF fn_usuario_activo(p_arrendador) = 0
+       OR NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe o no está activo.',
-                MYSQL_ERRNO = 45002;
+            SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;
 
-    IF v_estado_poliza IS NULL
-       OR v_estado_poliza NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA')
-       OR p_numero_poliza IS NULL
-       OR p_numero_poliza <= 0
-       OR p_aseguradora IS NULL
-       OR TRIM(p_aseguradora) = '' THEN
+    IF IFNULL(UPPER(TRIM(p_estado_poliza)), '') NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA')
+       OR IFNULL(p_numero_poliza, 0) <= 0
+       OR IFNULL(TRIM(p_aseguradora), '') = '' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Datos del seguro inválidos.',
-                MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'Datos del seguro invalidos.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
 
-    SELECT COALESCE(MAX(Id_seguro), 0) + 1
-        INTO p_id_seguro
-        FROM SEGURO
-    FOR UPDATE;
-
-    IF EXISTS (
-        SELECT 1
-          FROM SEGURO
-        WHERE Aseguradora = TRIM(p_aseguradora)
-             AND numero_poliza = p_numero_poliza
-        ) THEN
-            SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'La póliza ya está registrada para esa aseguradora.',
-                    MYSQL_ERRNO = 45003;
+    IF EXISTS (SELECT 1 FROM `SEGURO`
+                WHERE `Aseguradora` = TRIM(p_aseguradora)
+                  AND `numero_poliza` = p_numero_poliza) THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45003;
     END IF;
 
-    INSERT INTO SEGURO (
-        Estado_poliza,
-        Id_seguro,
-        numero_poliza,
-        Aseguradora,
-        Fecha_inicio_vigencia
-    )
-    VALUES (
-           v_estado_poliza,
-           p_id_seguro,
-           p_numero_poliza,
-           TRIM(p_aseguradora),
-           p_fecha_inicio_vigencia
-    );
+    SELECT COALESCE(MAX(`Id_seguro`), 0) + 1 INTO p_id_seguro FROM `SEGURO` FOR UPDATE;
 
-    INSERT INTO MOTOCICLETA (
-        Estado_motocicleta,
-        Kilometraje_actual,
-        Precio_alquiler,
-        Cilindraje,
-        `Año`,
-        modelo,
-        Marca,
-        Placa,
-        Numero_documento,
-        Id_seguro,
-        Color,
-        Descripcion
-    )
-    VALUES (
-           'DISPONIBLE',
-           p_kilometraje,
-           p_precio_alquiler,
-           p_cilindraje,
-           p_anio,
-           p_modelo,
-           p_marca,
-           p_placa,
-           p_arrendador,
-           p_id_seguro,
-           NULLIF(TRIM(p_color), ''),
-           NULLIF(TRIM(p_descripcion), '')
-       );
+    INSERT INTO `SEGURO`
+        (`Id_seguro`, `numero_poliza`, `Aseguradora`, `Fecha_inicio_vigencia`, `Estado_poliza`)
+    VALUES
+        (p_id_seguro, p_numero_poliza, TRIM(p_aseguradora), p_fecha_inicio_vigencia, UPPER(TRIM(p_estado_poliza)));
+
+    INSERT INTO `MOTOCICLETA`
+        (`Placa`, `Numero_documento`, `Id_seguro`, `Marca`, `modelo`, `Color`, `Descripcion`,
+         `Año`, `Cilindraje`, `Kilometraje_actual`, `Precio_alquiler`, `Estado_motocicleta`)
+    VALUES
+        (p_placa, p_arrendador, p_id_seguro, p_marca, p_modelo,
+         NULLIF(TRIM(p_color), ''), NULLIF(TRIM(p_descripcion), ''),
+         p_anio, p_cilindraje, p_kilometraje, p_precio_alquiler, 'DISPONIBLE');
 
     COMMIT;
 END$$
 
-
--- 4) Catalogo de motos que se pueden alquilar en un rango de fechas.
+-- 3) Catalogo de motos que se pueden alquilar en un rango de fechas.
 DROP PROCEDURE IF EXISTS `sp_listar_motos_disponibles`$$
 CREATE PROCEDURE `sp_listar_motos_disponibles`(
     IN p_fecha_inicio DATE,
@@ -820,71 +701,53 @@ BEGIN
      ORDER BY m.`Precio_alquiler`;
 END$$
 
--- 5) Cambia el estado de una moto del arrendador, validando que exista, que el estado sea permitido y que no esté arrendada.
-DROP PROCEDURE IF EXISTS sp_cambiar_estado_motocicleta$$
-CREATE PROCEDURE sp_cambiar_estado_motocicleta(
-    IN p_placa CHAR(10),
+-- 4) El arrendador cambia el estado de su moto (no se permite si esta ARRENDADA).
+DROP PROCEDURE IF EXISTS `sp_cambiar_estado_motocicleta`$$
+CREATE PROCEDURE `sp_cambiar_estado_motocicleta`(
+    IN p_placa                CHAR(10),
     IN p_documento_arrendador INT,
-    IN p_estado CHAR(20)
+    IN p_estado               CHAR(20)
 )
 BEGIN
-    DECLARE v_estado_actual CHAR(20);
-    DECLARE v_encontrada BOOLEAN DEFAULT TRUE;
+    DECLARE v_estado_nuevo  CHAR(20) DEFAULT UPPER(TRIM(p_estado));
+    DECLARE v_estado_actual CHAR(20) DEFAULT NULL;
 
-    DECLARE CONTINUE HANDLER FOR NOT FOUND
-        SET v_encontrada = FALSE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    IF UPPER(TRIM(p_estado)) NOT IN
-       ('DISPONIBLE', 'ARRENDADA', 'MANTENIMIENTO', 'INACTIVA') THEN
+    IF IFNULL(v_estado_nuevo, '') NOT IN ('DISPONIBLE', 'ARRENDADA', 'MANTENIMIENTO', 'INACTIVA') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Estado de motocicleta inválido.',
-                MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'Estado de motocicleta invalido.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
 
-    SELECT Estado_motocicleta
-      INTO v_estado_actual
-      FROM MOTOCICLETA
-     WHERE Placa = p_placa
-       AND Numero_documento = p_documento_arrendador
+    SELECT `Estado_motocicleta` INTO v_estado_actual
+      FROM `MOTOCICLETA`
+     WHERE `Placa` = p_placa AND `Numero_documento` = p_documento_arrendador
        FOR UPDATE;
 
-    IF NOT v_encontrada THEN
+    IF v_estado_actual IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Motocicleta no encontrada.',
-                MYSQL_ERRNO = 45004;
+            SET MESSAGE_TEXT = 'Motocicleta no encontrada.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_estado_actual = 'ARRENDADA' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'No se puede cambiar el estado de una moto arrendada.',
-                MYSQL_ERRNO = 45008;
+            SET MESSAGE_TEXT = 'No se puede cambiar el estado de una moto arrendada.', MYSQL_ERRNO = 45008;
     END IF;
 
-    UPDATE MOTOCICLETA
-       SET Estado_motocicleta = UPPER(TRIM(p_estado))
-     WHERE Placa = p_placa
-       AND Numero_documento = p_documento_arrendador;
+    UPDATE `MOTOCICLETA`
+       SET `Estado_motocicleta` = v_estado_nuevo
+     WHERE `Placa` = p_placa AND `Numero_documento` = p_documento_arrendador;
 
     COMMIT;
 END$$
 
--- 6) Crea la solicitud y su contrato PENDIENTE en una sola transaccion.
---
--- Por la FK circular obligatoria SOLICITUD <-> CONTRATO, ninguna de las dos
--- filas puede insertarse primero con las FK activas. Por eso se desactiva
--- FOREIGN_KEY_CHECKS solo en esta sesion y solo durante los dos INSERT.
--- Mientras esta desactivado, MySQL no valida las FK; por eso TODAS las
--- referencias (arrendatario, moto, arrendador) se validan antes a mano, y
--- las dos filas se apuntan entre si con los mismos valores.
--- Si algo falla, el handler hace ROLLBACK y restaura FOREIGN_KEY_CHECKS.
+-- 5) Crea la solicitud y su contrato PENDIENTE en una sola transaccion.
+--    Como SOLICITUD y CONTRATO se apuntan entre si con FK obligatorias, se
+--    desactiva FOREIGN_KEY_CHECKS solo durante los dos INSERT. Por eso las
+--    referencias se validan antes a mano. trg_solicitud_bi impide que alguien
+--    alquile su propia moto.
 DROP PROCEDURE IF EXISTS `sp_crear_solicitud`$$
 CREATE PROCEDURE `sp_crear_solicitud`(
     IN  p_arrendatario INT,
@@ -897,9 +760,8 @@ CREATE PROCEDURE `sp_crear_solicitud`(
 )
 BEGIN
     DECLARE v_fk_previo  TINYINT;
-    DECLARE v_placa      CHAR(10);
+    DECLARE v_placa      CHAR(10) DEFAULT UPPER(TRIM(p_placa));
     DECLARE v_arrendador INT DEFAULT NULL;
-    DECLARE v_motos      INT DEFAULT 0;
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -908,12 +770,10 @@ BEGIN
         RESIGNAL;
     END;
 
-    -- Primera instruccion: guardar el valor actual para poder restaurarlo.
     SET v_fk_previo = @@SESSION.foreign_key_checks;
-    SET v_placa     = UPPER(TRIM(p_placa));
 
-    IF NOT EXISTS (SELECT 1 FROM `ARRENDATARIO` WHERE `Numero_documento` = p_arrendatario)
-       OR fn_usuario_activo(p_arrendatario) = 0 THEN
+    IF fn_usuario_activo(p_arrendatario) = 0
+       OR NOT EXISTS (SELECT 1 FROM `ARRENDATARIO` WHERE `Numero_documento` = p_arrendatario) THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'El arrendatario no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;
@@ -927,23 +787,14 @@ BEGIN
     START TRANSACTION;
 
     -- Bloquea la moto: serializa solicitudes y aprobaciones sobre la misma moto.
-    SELECT COUNT(*), MIN(`Numero_documento`)
-      INTO v_motos, v_arrendador
+    SELECT `Numero_documento` INTO v_arrendador
       FROM `MOTOCICLETA`
      WHERE `Placa` = v_placa
        FOR UPDATE;
 
-    IF v_motos = 0 THEN
+    IF v_arrendador IS NULL THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'La motocicleta no existe.', MYSQL_ERRNO = 45004;
-    ELSEIF v_motos > 1 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La placa esta registrada a mas de un arrendador.', MYSQL_ERRNO = 45010;
-    END IF;
-
-    IF v_arrendador = p_arrendatario THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45007;
     END IF;
 
     IF fn_moto_disponible(v_placa, v_arrendador, p_fecha_inicio, p_fecha_fin, NULL) = 0 THEN
@@ -954,21 +805,13 @@ BEGIN
     IF EXISTS (SELECT 1 FROM `SOLICITUD`
                 WHERE `Numero_documento` = p_arrendatario
                   AND `Placa` = v_placa
-                  AND `Numero_documento2` = v_arrendador
                   AND `Estado_solicitud` = 'PENDIENTE') THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Ya tiene una solicitud pendiente para esta motocicleta.', MYSQL_ERRNO = 45003;
     END IF;
 
-    SELECT COALESCE(MAX(`Id_solicitud`), 0) + 1
-      INTO p_id_solicitud
-      FROM `SOLICITUD`
-       FOR UPDATE;
-
-    SELECT COALESCE(MAX(`id_contrato`), 0) + 1
-      INTO p_id_contrato
-      FROM `CONTRATO`
-       FOR UPDATE;
+    SELECT COALESCE(MAX(`Id_solicitud`), 0) + 1 INTO p_id_solicitud FROM `SOLICITUD` FOR UPDATE;
+    SELECT COALESCE(MAX(`id_contrato`), 0) + 1  INTO p_id_contrato  FROM `CONTRATO`  FOR UPDATE;
 
     SET FOREIGN_KEY_CHECKS = 0;
 
@@ -981,7 +824,6 @@ BEGIN
          p_arrendatario, v_arrendador,
          p_id_solicitud, p_arrendatario, v_placa, v_arrendador);
 
-    -- trg_solicitud_bi completa Fecha_solicitud y Estado_solicitud.
     INSERT INTO `SOLICITUD`
         (`Id_solicitud`, `Fecha_solicitud`, `Estado_solicitud`, `Mensaje_solicitud`,
          `Numero_documento`, `Placa`, `Numero_documento2`,
@@ -996,17 +838,15 @@ BEGIN
     COMMIT;
 END$$
 
--- 7) El arrendador aprueba o rechaza una solicitud.
---   RECHAZADA: solicitud RECHAZADA (trg_solicitud_au cancela su contrato).
---   APROBADA : solicitud APROBADA, contrato VIGENTE, se genera el PAGO
---              PENDIENTE por el valor total, la moto pasa a ARRENDADA si el
---              alquiler empieza hoy, y con un CURSOR se rechazan las demas
---              solicitudes PENDIENTES de la misma moto que se cruzan en fechas.
--- p_id_pago devuelve el pago generado (NULL si se rechazo).
---
--- Nota: PAGO.fecha_pago y PAGO.Metodo_pago son NOT NULL en el modelo. Mientras
--- el pago esta PENDIENTE, fecha_pago guarda la fecha en que se genero y
--- Metodo_pago vale 'POR_DEFINIR'; al pagar, trg_pago_bu fija la fecha real.
+-- 6) El arrendador aprueba o rechaza una solicitud.
+--   RECHAZADA: trg_solicitud_au cancela el contrato pendiente.
+--   APROBADA : el contrato pasa a VIGENTE con su deposito, la moto pasa a
+--              ARRENDADA si el alquiler empieza hoy, se generan los pagos
+--              (una cuota por cada 30 dias) y con un CURSOR se rechazan las
+--              demas solicitudes pendientes de la moto que se cruzan en fechas.
+-- p_id_pago devuelve el primer pago generado (NULL si se rechazo).
+-- Mientras el pago esta PENDIENTE, fecha_pago guarda la fecha en que se
+-- genero y Metodo_pago vale 'POR_DEFINIR' (ambas columnas son NOT NULL).
 DROP PROCEDURE IF EXISTS `sp_responder_solicitud`$$
 CREATE PROCEDURE `sp_responder_solicitud`(
     IN  p_id_solicitud INT,
@@ -1016,136 +856,98 @@ CREATE PROCEDURE `sp_responder_solicitud`(
     OUT p_id_pago      INT
 )
 BEGIN
-    DECLARE v_decision          CHAR(20);
-    DECLARE v_estado            CHAR(20) DEFAULT NULL;
-    DECLARE v_arrendatario      INT;
-    DECLARE v_arrendador        INT;
-    DECLARE v_placa             CHAR(10);
-    DECLARE v_id_contrato       INT;
-    DECLARE v_fecha_inicio      DATE;
-    DECLARE v_fecha_fin         DATE;
-    DECLARE v_monto             INT;
-    DECLARE v_bloqueo           INT;
-    DECLARE v_dias               INT;
-    DECLARE v_num_cuotas         INT;
-    DECLARE v_monto_cuota        INT;
-    DECLARE v_ultima_cuota       INT;
-    DECLARE v_cuota_actual       INT;
-    DECLARE v_indice             INT DEFAULT 1;
-    DECLARE v_mes                INT DEFAULT 0;
-    DECLARE v_id_pago_actual     INT;
-    DECLARE v_fecha_vencimiento  DATE;
+    DECLARE v_decision     CHAR(20) DEFAULT UPPER(TRIM(p_decision));
+    DECLARE v_estado       CHAR(20) DEFAULT NULL;
+    DECLARE v_arrendatario INT;
+    DECLARE v_arrendador   INT;
+    DECLARE v_placa        CHAR(10);
+    DECLARE v_id_contrato  INT;
+    DECLARE v_fecha_inicio DATE;
+    DECLARE v_fecha_fin    DATE;
+    DECLARE v_monto        INT;
+    DECLARE v_cuotas       INT;
+    DECLARE v_valor_cuota  INT;
+    DECLARE v_i            INT DEFAULT 0;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
     SET p_id_pago = NULL;
-    SET v_decision = UPPER(TRIM(p_decision));
 
-    IF v_decision IS NULL
-       OR v_decision NOT IN ('APROBADA', 'RECHAZADA') THEN
+    IF IFNULL(v_decision, '') NOT IN ('APROBADA', 'RECHAZADA') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La decision debe ser APROBADA o RECHAZADA.',
-                MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'La decision debe ser APROBADA o RECHAZADA.', MYSQL_ERRNO = 45001;
     END IF;
 
-    IF p_deposito IS NULL OR p_deposito < 0 THEN
+    IF IFNULL(p_deposito, -1) < 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El deposito no puede ser negativo.',
-                MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'El deposito no puede ser negativo.', MYSQL_ERRNO = 45001;
     END IF;
 
     START TRANSACTION;
 
-    SELECT `Estado_solicitud`,
-           `Numero_documento`,
-           `Numero_documento2`,
-           `Placa`,
-           `id_contrato`
-      INTO v_estado,
-           v_arrendatario,
-           v_arrendador,
-           v_placa,
-           v_id_contrato
-      FROM `SOLICITUD`
-     WHERE `Id_solicitud` = p_id_solicitud;
+    SELECT s.`Estado_solicitud`, s.`Numero_documento`, s.`Numero_documento2`, s.`Placa`,
+           s.`id_contrato`, c.`Fecha_inicio`, c.`Fecha_fin`
+      INTO v_estado, v_arrendatario, v_arrendador, v_placa,
+           v_id_contrato, v_fecha_inicio, v_fecha_fin
+      FROM `SOLICITUD` s
+      JOIN `CONTRATO` c ON c.`id_contrato` = s.`id_contrato`
+     WHERE s.`Id_solicitud` = p_id_solicitud;
 
     IF v_estado IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no existe.',
-                MYSQL_ERRNO = 45004;
+            SET MESSAGE_TEXT = 'La solicitud no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_arrendador <> p_arrendador THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no corresponde a una moto de este arrendador.',
-                MYSQL_ERRNO = 45007;
+            SET MESSAGE_TEXT = 'La solicitud no corresponde a una moto de este arrendador.', MYSQL_ERRNO = 45007;
     END IF;
-
-    -- Bloqueo de la moto antes de la solicitud, igual que en los otros SP.
-    SELECT COUNT(*)
-      INTO v_bloqueo
-      FROM `MOTOCICLETA`
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = v_arrendador
-       FOR UPDATE;
-
-    SELECT `Estado_solicitud`
-      INTO v_estado
-      FROM `SOLICITUD`
-     WHERE `Id_solicitud` = p_id_solicitud
-       FOR UPDATE;
 
     IF v_estado <> 'PENDIENTE' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud ya fue respondida o cancelada.',
-                MYSQL_ERRNO = 45008;
+            SET MESSAGE_TEXT = 'La solicitud ya fue respondida o cancelada.', MYSQL_ERRNO = 45008;
     END IF;
 
-    SELECT `Fecha_inicio`, `Fecha_fin`
-      INTO v_fecha_inicio, v_fecha_fin
-      FROM `CONTRATO`
-     WHERE `id_contrato` = v_id_contrato
+    -- Bloquea la moto, igual que sp_crear_solicitud.
+    SELECT `Placa` INTO v_placa
+      FROM `MOTOCICLETA`
+     WHERE `Placa` = v_placa AND `Numero_documento` = v_arrendador
        FOR UPDATE;
 
-    IF v_decision = 'RECHAZADA' THEN
-        UPDATE `SOLICITUD`
-           SET `Estado_solicitud` = 'RECHAZADA'
-         WHERE `Id_solicitud` = p_id_solicitud;
-    ELSE
+    IF v_decision = 'APROBADA' THEN
         IF v_fecha_inicio < CURDATE() THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'La fecha de inicio ya paso; la solicitud expiro.',
-                    MYSQL_ERRNO = 45006;
+                SET MESSAGE_TEXT = 'La fecha de inicio ya paso; la solicitud expiro.', MYSQL_ERRNO = 45006;
         END IF;
 
         IF fn_usuario_activo(v_arrendatario) = 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'El arrendatario ya no esta activo.',
-                    MYSQL_ERRNO = 45002;
+                SET MESSAGE_TEXT = 'El arrendatario ya no esta activo.', MYSQL_ERRNO = 45002;
         END IF;
 
-        IF fn_moto_disponible(
-            v_placa, v_arrendador, v_fecha_inicio, v_fecha_fin, v_id_contrato
-        ) = 0 THEN
+        IF fn_moto_disponible(v_placa, v_arrendador, v_fecha_inicio, v_fecha_fin, v_id_contrato) = 0 THEN
             SIGNAL SQLSTATE '45000'
-                SET MESSAGE_TEXT = 'La motocicleta ya no esta disponible en esas fechas.',
-                    MYSQL_ERRNO = 45005;
+                SET MESSAGE_TEXT = 'La motocicleta ya no esta disponible en esas fechas.', MYSQL_ERRNO = 45005;
         END IF;
+    END IF;
 
-        UPDATE `SOLICITUD`
-           SET `Estado_solicitud` = 'APROBADA'
-         WHERE `Id_solicitud` = p_id_solicitud;
+    -- Solo cambia si sigue PENDIENTE (evita responder dos veces al mismo tiempo).
+    UPDATE `SOLICITUD`
+       SET `Estado_solicitud` = v_decision
+     WHERE `Id_solicitud` = p_id_solicitud
+       AND `Estado_solicitud` = 'PENDIENTE';
 
+    IF ROW_COUNT() = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La solicitud ya fue respondida o cancelada.', MYSQL_ERRNO = 45008;
+    END IF;
+
+    IF v_decision = 'APROBADA' THEN
         UPDATE `CONTRATO`
-           SET `Estado_contrato` = 'VIGENTE',
-               `Deposito` = p_deposito
+           SET `Estado_contrato` = 'VIGENTE', `Deposito` = p_deposito
          WHERE `id_contrato` = v_id_contrato;
 
-        IF v_fecha_inicio <= CURDATE() THEN
+        IF v_fecha_inicio = CURDATE() THEN
             UPDATE `MOTOCICLETA`
                SET `Estado_motocicleta` = 'ARRENDADA'
              WHERE `Placa` = v_placa
@@ -1153,97 +955,53 @@ BEGIN
                AND `Estado_motocicleta` = 'DISPONIBLE';
         END IF;
 
-        SET v_monto = fn_calcular_valor_alquiler(
-            v_placa, v_arrendador, v_fecha_inicio, v_fecha_fin
-        );
+        -- Una cuota por cada 30 dias; la ultima absorbe el redondeo.
+        SET v_monto       = fn_calcular_valor_alquiler(v_placa, v_arrendador, v_fecha_inicio, v_fecha_fin);
+        SET v_cuotas      = CEIL(fn_dias_alquiler(v_fecha_inicio, v_fecha_fin) / 30);
+        SET v_valor_cuota = ROUND(v_monto / v_cuotas);
 
-        SET v_dias = fn_dias_alquiler(v_fecha_inicio, v_fecha_fin);
-        SET v_num_cuotas = GREATEST(1, CEIL(v_dias / 30));
-        SET v_monto_cuota = ROUND(v_monto / v_num_cuotas);
-        SET v_ultima_cuota =
-            v_monto - (v_monto_cuota * (v_num_cuotas - 1));
+        SELECT COALESCE(MAX(`Id_pago`), 0) + 1 INTO p_id_pago FROM `PAGO` FOR UPDATE;
 
-        SELECT COALESCE(MAX(`Id_pago`), 0) + 1
-          INTO p_id_pago
-          FROM `PAGO`
-           FOR UPDATE;
-
-        SET v_id_pago_actual = p_id_pago;
-
-        -- Cuotas mensuales; la última absorbe el redondeo.
-        WHILE v_indice <= v_num_cuotas DO
-            IF v_indice = v_num_cuotas THEN
-                SET v_cuota_actual = v_ultima_cuota;
-            ELSE
-                SET v_cuota_actual = v_monto_cuota;
-            END IF;
-
-            SET v_fecha_vencimiento =
-                DATE_ADD(v_fecha_inicio, INTERVAL v_mes MONTH);
-
-            INSERT INTO `PAGO` (
-                `Id_pago`,
-                `fecha_pago`,
-                `Monto`,
-                `Fecha_vencimiento`,
-                `Estado`,
-                `Metodo_pago`,
-                `id_contrato`,
-                `Numero_documento`,
-                `Numero_documento1`
-            )
-            VALUES (
-                v_id_pago_actual,
-                CURDATE(),
-                v_cuota_actual,
-                v_fecha_vencimiento,
-                'PENDIENTE',
-                'POR_DEFINIR',
-                v_id_contrato,
-                v_arrendatario,
-                v_arrendador
-            );
-
-            SET v_id_pago_actual = v_id_pago_actual + 1;
-            SET v_indice = v_indice + 1;
-            SET v_mes = v_mes + 1;
+        WHILE v_i < v_cuotas DO
+            INSERT INTO `PAGO`
+                (`Id_pago`, `fecha_pago`, `Monto`, `Fecha_vencimiento`, `Estado`, `Metodo_pago`,
+                 `id_contrato`, `Numero_documento`, `Numero_documento1`)
+            VALUES
+                (p_id_pago + v_i, CURDATE(),
+                 IF(v_i = v_cuotas - 1, v_monto - v_valor_cuota * (v_cuotas - 1), v_valor_cuota),
+                 DATE_ADD(v_fecha_inicio, INTERVAL v_i MONTH), 'PENDIENTE', 'POR_DEFINIR',
+                 v_id_contrato, v_arrendatario, v_arrendador);
+            SET v_i = v_i + 1;
         END WHILE;
 
-        -- Rechaza las solicitudes pendientes que se cruzan con este contrato.
+        -- CURSOR: rechaza las otras solicitudes pendientes que se cruzan en fechas.
         BEGIN
-            DECLARE v_fin TINYINT DEFAULT 0;
-            DECLARE v_otra_solicitud INT;
+            DECLARE v_terminado INT DEFAULT 0;
+            DECLARE v_otra      INT;
 
             DECLARE cur_conflictos CURSOR FOR
                 SELECT s.`Id_solicitud`
                   FROM `SOLICITUD` s
-                  JOIN `CONTRATO` c
-                    ON c.`id_contrato` = s.`id_contrato`
-                   AND c.`Numero_documento` = s.`Numero_documento1`
-                   AND c.`Numero_documento1` = s.`Numero_documento11`
+                  JOIN `CONTRATO` c ON c.`id_contrato` = s.`id_contrato`
                  WHERE s.`Placa` = v_placa
                    AND s.`Numero_documento2` = v_arrendador
                    AND s.`Estado_solicitud` = 'PENDIENTE'
-                   AND s.`Id_solicitud` <> p_id_solicitud
                    AND c.`Fecha_inicio` <= v_fecha_fin
                    AND c.`Fecha_fin` >= v_fecha_inicio;
 
-            DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_fin = 1;
+            DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_terminado = 1;
 
             OPEN cur_conflictos;
-
             lectura: LOOP
-                FETCH cur_conflictos INTO v_otra_solicitud;
-
-                IF v_fin = 1 THEN
+                FETCH cur_conflictos INTO v_otra;
+                IF v_terminado = 1 THEN
                     LEAVE lectura;
                 END IF;
 
                 UPDATE `SOLICITUD`
                    SET `Estado_solicitud` = 'RECHAZADA'
-                 WHERE `Id_solicitud` = v_otra_solicitud;
+                 WHERE `Id_solicitud` = v_otra;
             END LOOP lectura;
-
             CLOSE cur_conflictos;
         END;
     END IF;
@@ -1251,7 +1009,7 @@ BEGIN
     COMMIT;
 END$$
 
--- 8) El arrendatario paga un pago PENDIENTE o VENCIDO de un contrato VIGENTE.
+-- 7) El arrendatario paga un pago PENDIENTE o VENCIDO de un contrato VIGENTE.
 --    trg_pago_bu valida la transicion y fija fecha_pago.
 DROP PROCEDURE IF EXISTS `sp_registrar_pago`$$
 CREATE PROCEDURE `sp_registrar_pago`(
@@ -1303,14 +1061,12 @@ BEGIN
     COMMIT;
 END$$
 
--- 9) Arrendador finaliza, o cualquiera de las partes cancela, un contrato VIGENTE.
---   FINALIZADO: solo el arrendador, contrato ya iniciado, sin saldo pendiente;
---               registra el kilometraje de devolucion.
---   CANCELADO : arrendatario o arrendador, solo si el contrato aun no inicia.
---               (los pagos PAGADOS se conservan; la devolucion de dinero se
---               gestiona fuera de la base de datos).
--- Efectos automaticos (trg_contrato_au): al FINALIZAR la moto vuelve a
--- DISPONIBLE; al CANCELAR los pagos pendientes/vencidos se cancelan.
+-- 8) Cierra un contrato VIGENTE.
+--   FINALIZADO: solo el arrendador, con el contrato ya iniciado y sin saldo
+--               pendiente; registra el kilometraje de devolucion.
+--   CANCELADO : cualquiera de las partes, si el contrato aun no inicia.
+-- trg_contrato_au hace el resto: al finalizar la moto vuelve a DISPONIBLE y
+-- al cancelar se cancelan los pagos pendientes o vencidos.
 DROP PROCEDURE IF EXISTS `sp_cerrar_contrato`$$
 CREATE PROCEDURE `sp_cerrar_contrato`(
     IN p_id_contrato       INT,
@@ -1319,23 +1075,16 @@ CREATE PROCEDURE `sp_cerrar_contrato`(
     IN p_kilometraje_final INT
 )
 BEGIN
-    DECLARE v_accion       CHAR(20);
+    DECLARE v_accion       CHAR(20) DEFAULT UPPER(TRIM(p_accion));
     DECLARE v_estado       CHAR(20) DEFAULT NULL;
     DECLARE v_arrendatario INT;
     DECLARE v_arrendador   INT;
     DECLARE v_placa        CHAR(10);
     DECLARE v_fecha_inicio DATE;
-    DECLARE v_km_actual    INT;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
-    SET v_accion = UPPER(TRIM(p_accion));
-
-    IF v_accion IS NULL OR v_accion NOT IN ('FINALIZADO', 'CANCELADO') THEN
+    IF IFNULL(v_accion, '') NOT IN ('FINALIZADO', 'CANCELADO') THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'La accion debe ser FINALIZADO o CANCELADO.', MYSQL_ERRNO = 45001;
     END IF;
@@ -1359,7 +1108,6 @@ BEGIN
     END IF;
 
     IF v_accion = 'FINALIZADO' THEN
-
         IF p_documento <> v_arrendador THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'Solo el arrendador puede finalizar el contrato.', MYSQL_ERRNO = 45007;
@@ -1375,25 +1123,17 @@ BEGIN
                 SET MESSAGE_TEXT = 'El contrato tiene pagos pendientes.', MYSQL_ERRNO = 45009;
         END IF;
 
-        SELECT `Kilometraje_actual`
-          INTO v_km_actual
-          FROM `MOTOCICLETA`
-         WHERE `Placa` = v_placa
-           AND `Numero_documento` = v_arrendador
-           FOR UPDATE;
-
-        IF p_kilometraje_final IS NULL OR p_kilometraje_final < v_km_actual THEN
+        IF IFNULL(p_kilometraje_final, -1) < (SELECT `Kilometraje_actual` FROM `MOTOCICLETA`
+                                               WHERE `Placa` = v_placa
+                                                 AND `Numero_documento` = v_arrendador) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'El kilometraje final no puede ser menor al actual.', MYSQL_ERRNO = 45001;
         END IF;
 
         UPDATE `MOTOCICLETA`
            SET `Kilometraje_actual` = p_kilometraje_final
-         WHERE `Placa` = v_placa
-           AND `Numero_documento` = v_arrendador;
-
+         WHERE `Placa` = v_placa AND `Numero_documento` = v_arrendador;
     ELSE
-
         IF p_documento NOT IN (v_arrendatario, v_arrendador) THEN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'El usuario no es parte del contrato.', MYSQL_ERRNO = 45007;
@@ -1403,7 +1143,6 @@ BEGIN
             SIGNAL SQLSTATE '45000'
                 SET MESSAGE_TEXT = 'El contrato ya inicio y no puede cancelarse.', MYSQL_ERRNO = 45008;
         END IF;
-
     END IF;
 
     UPDATE `CONTRATO`
@@ -1413,7 +1152,7 @@ BEGIN
     COMMIT;
 END$$
 
--- 10) Proceso diario (lo puede llamar el evento de la seccion 4 o el backend):
+-- 9) Proceso diario (lo puede llamar el evento de la seccion 4 o el backend):
 --   1. Pagos PENDIENTES cuya fecha de vencimiento ya paso -> VENCIDO.
 --   2. CURSOR: solicitudes PENDIENTES cuya fecha de inicio ya paso
 --      -> CANCELADA (trg_solicitud_au cancela su contrato).
@@ -1491,110 +1230,10 @@ BEGIN
     COMMIT;
 END$$
 
--- 11) Reporte por moto de un arrendador en un rango de fechas, armado con
---     CURSOR: contratos, ingresos (pagos PAGADOS), costos de mantenimiento
---     y utilidad.
-DROP PROCEDURE IF EXISTS `sp_reporte_ingresos_arrendador`$$
-CREATE PROCEDURE `sp_reporte_ingresos_arrendador`(
-    IN p_arrendador INT,
-    IN p_desde      DATE,
-    IN p_hasta      DATE
-)
-BEGIN
-    DECLARE v_fin       TINYINT DEFAULT 0;
-    DECLARE v_placa     CHAR(10);
-    DECLARE v_marca     CHAR(50);
-    DECLARE v_modelo    CHAR(50);
-    DECLARE v_contratos INT;
-    DECLARE v_ingresos  BIGINT;
-    DECLARE v_costos    BIGINT;
-
-    DECLARE cur_motos CURSOR FOR
-        SELECT `Placa`, `Marca`, `modelo`
-          FROM `MOTOCICLETA`
-         WHERE `Numero_documento` = p_arrendador
-         ORDER BY `Placa`;
-
-    DECLARE CONTINUE HANDLER FOR NOT FOUND SET v_fin = 1;
-
-    IF NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador) THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe.', MYSQL_ERRNO = 45002;
-    END IF;
-
-    IF p_desde IS NULL OR p_hasta IS NULL OR p_hasta < p_desde THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Rango de fechas invalido.', MYSQL_ERRNO = 45006;
-    END IF;
-
-    DROP TEMPORARY TABLE IF EXISTS `tmp_reporte_ingresos`;
-    CREATE TEMPORARY TABLE `tmp_reporte_ingresos` (
-        `Placa`                CHAR(10),
-        `Marca`                CHAR(50),
-        `Modelo`               CHAR(50),
-        `Contratos`            INT,
-        `Ingresos`             BIGINT,
-        `Costos_mantenimiento` BIGINT,
-        `Utilidad`             BIGINT
-    );
-
-    OPEN cur_motos;
-
-    lectura: LOOP
-        FETCH cur_motos INTO v_placa, v_marca, v_modelo;
-        IF v_fin = 1 THEN
-            LEAVE lectura;
-        END IF;
-
-        SET v_contratos = (
-            SELECT COUNT(*)
-              FROM `CONTRATO`
-             WHERE `Placa` = v_placa
-               AND `Numero_documento21` = p_arrendador
-               AND `Estado_contrato` IN ('VIGENTE', 'FINALIZADO')
-               AND `Fecha_inicio` <= p_hasta
-               AND `Fecha_fin` >= p_desde
-        );
-
-        SET v_ingresos = (
-            SELECT COALESCE(SUM(p.`Monto`), 0)
-              FROM `PAGO` p
-              JOIN `CONTRATO` c
-                ON c.`id_contrato`       = p.`id_contrato`
-               AND c.`Numero_documento`  = p.`Numero_documento`
-               AND c.`Numero_documento1` = p.`Numero_documento1`
-             WHERE c.`Placa` = v_placa
-               AND c.`Numero_documento21` = p_arrendador
-               AND p.`Estado` = 'PAGADO'
-               AND p.`fecha_pago` BETWEEN p_desde AND p_hasta
-        );
-
-        SET v_costos = (
-            SELECT COALESCE(SUM(`Costo`), 0)
-              FROM `INFO_MANTENIMIENTO`
-             WHERE `Placa` = v_placa
-               AND `Numero_documento` = p_arrendador
-               AND `Fecha_mantenimiento` BETWEEN p_desde AND p_hasta
-        );
-
-        INSERT INTO `tmp_reporte_ingresos`
-        VALUES (v_placa, v_marca, v_modelo, v_contratos, v_ingresos, v_costos, v_ingresos - v_costos);
-    END LOOP lectura;
-
-    CLOSE cur_motos;
-
-    SELECT * FROM `tmp_reporte_ingresos` ORDER BY `Utilidad` DESC;
-
-    DROP TEMPORARY TABLE IF EXISTS `tmp_reporte_ingresos`;
-END$$
-
-
--- 12) -- Actualiza los datos de una motocicleta y su seguro en una transacción.
--- -- Valida propietario, estado de la moto y unicidad de la póliza.
-
-
-DROP PROCEDURE IF EXISTS sp_actualizar_motocicleta$$
-CREATE PROCEDURE sp_actualizar_motocicleta(
+-- 10) Actualiza los datos de una motocicleta y de su seguro.
+--     No se permite si la moto esta ARRENDADA.
+DROP PROCEDURE IF EXISTS `sp_actualizar_motocicleta`$$
+CREATE PROCEDURE `sp_actualizar_motocicleta`(
     IN p_arrendador            INT,
     IN p_placa                 CHAR(10),
     IN p_marca                 CHAR(50),
@@ -1611,195 +1250,112 @@ CREATE PROCEDURE sp_actualizar_motocicleta(
     IN p_estado_poliza         CHAR(20)
 )
 BEGIN
-    DECLARE v_id_seguro INT DEFAULT NULL;
+    DECLARE v_id_seguro   INT DEFAULT NULL;
     DECLARE v_estado_moto CHAR(20) DEFAULT NULL;
-    DECLARE v_encontrada BOOLEAN DEFAULT TRUE;
 
-    DECLARE CONTINUE HANDLER FOR NOT FOUND
-        SET v_encontrada = FALSE;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    IF p_arrendador IS NULL
-       OR p_placa IS NULL OR TRIM(p_placa) = ''
-       OR p_marca IS NULL OR TRIM(p_marca) = ''
-       OR p_modelo IS NULL OR TRIM(p_modelo) = ''
-       OR p_anio IS NULL OR p_anio < 1950
-       OR p_cilindraje IS NULL OR p_cilindraje <= 0
-       OR p_kilometraje IS NULL OR p_kilometraje < 0
-       OR p_precio_alquiler IS NULL OR p_precio_alquiler <= 0
-       OR p_numero_poliza IS NULL OR p_numero_poliza <= 0
-       OR p_aseguradora IS NULL OR TRIM(p_aseguradora) = ''
+    -- (trg_motocicleta_bi solo valida al insertar, por eso se valida aqui.)
+    IF IFNULL(TRIM(p_marca), '') = '' OR IFNULL(TRIM(p_modelo), '') = ''
+       OR IFNULL(p_anio, 0) < 1950 OR IFNULL(p_cilindraje, 0) <= 0
+       OR IFNULL(p_kilometraje, -1) < 0 OR IFNULL(p_precio_alquiler, 0) <= 0
+       OR IFNULL(p_numero_poliza, 0) <= 0 OR IFNULL(TRIM(p_aseguradora), '') = ''
        OR p_fecha_inicio_vigencia IS NULL
-       OR UPPER(TRIM(p_estado_poliza)) NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA') THEN
+       OR IFNULL(UPPER(TRIM(p_estado_poliza)), '') NOT IN ('VIGENTE', 'VENCIDA', 'CANCELADA') THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Datos de la motocicleta o del seguro inválidos.',
-                MYSQL_ERRNO = 45001;
+            SET MESSAGE_TEXT = 'Datos de la motocicleta o del seguro invalidos.', MYSQL_ERRNO = 45001;
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1
-          FROM ARRENDADOR
-         WHERE Numero_documento = p_arrendador
-    ) OR fn_usuario_activo(p_arrendador) = 0 THEN
+    IF fn_usuario_activo(p_arrendador) = 0 THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'El arrendador no existe o no está activo.',
-                MYSQL_ERRNO = 45002;
+            SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;
 
     START TRANSACTION;
 
-    SELECT Id_seguro, Estado_motocicleta
-      INTO v_id_seguro, v_estado_moto
-      FROM MOTOCICLETA
-     WHERE Placa = TRIM(p_placa)
-       AND Numero_documento = p_arrendador
+    SELECT `Id_seguro`, `Estado_motocicleta` INTO v_id_seguro, v_estado_moto
+      FROM `MOTOCICLETA`
+     WHERE `Placa` = TRIM(p_placa) AND `Numero_documento` = p_arrendador
        FOR UPDATE;
 
-    IF NOT v_encontrada THEN
+    IF v_id_seguro IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta no existe para este arrendador.',
-                MYSQL_ERRNO = 45004;
+            SET MESSAGE_TEXT = 'La motocicleta no existe para este arrendador.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_estado_moto = 'ARRENDADA' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'No se puede editar una motocicleta arrendada.',
-                MYSQL_ERRNO = 45008;
+            SET MESSAGE_TEXT = 'No se puede editar una motocicleta arrendada.', MYSQL_ERRNO = 45008;
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-          FROM SEGURO
-         WHERE Aseguradora = TRIM(p_aseguradora)
-           AND numero_poliza = p_numero_poliza
-           AND Id_seguro <> v_id_seguro
-    ) THEN
+    IF EXISTS (SELECT 1 FROM `SEGURO`
+                WHERE `Aseguradora` = TRIM(p_aseguradora)
+                  AND `numero_poliza` = p_numero_poliza
+                  AND `Id_seguro` <> v_id_seguro) THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La póliza ya está registrada para esa aseguradora.',
-                MYSQL_ERRNO = 45003;
+            SET MESSAGE_TEXT = 'La poliza ya esta registrada para esa aseguradora.', MYSQL_ERRNO = 45003;
     END IF;
 
-    UPDATE SEGURO
-       SET Estado_poliza = UPPER(TRIM(p_estado_poliza)),
-           numero_poliza = p_numero_poliza,
-           Aseguradora = TRIM(p_aseguradora),
-           Fecha_inicio_vigencia = p_fecha_inicio_vigencia
-     WHERE Id_seguro = v_id_seguro;
+    UPDATE `SEGURO`
+       SET `Estado_poliza`         = UPPER(TRIM(p_estado_poliza)),
+           `numero_poliza`         = p_numero_poliza,
+           `Aseguradora`           = TRIM(p_aseguradora),
+           `Fecha_inicio_vigencia` = p_fecha_inicio_vigencia
+     WHERE `Id_seguro` = v_id_seguro;
 
-    UPDATE MOTOCICLETA
-       SET Marca = TRIM(p_marca),
-           modelo = TRIM(p_modelo),
-           Color = NULLIF(TRIM(p_color), ''),
-           Descripcion = NULLIF(TRIM(p_descripcion), ''),
-           `Año` = p_anio,
-           Cilindraje = p_cilindraje,
-           Kilometraje_actual = p_kilometraje,
-           Precio_alquiler = p_precio_alquiler
-     WHERE Placa = TRIM(p_placa)
-       AND Numero_documento = p_arrendador;
+    UPDATE `MOTOCICLETA`
+       SET `Marca`              = TRIM(p_marca),
+           `modelo`             = TRIM(p_modelo),
+           `Color`              = NULLIF(TRIM(p_color), ''),
+           `Descripcion`        = NULLIF(TRIM(p_descripcion), ''),
+           `Año`                = p_anio,
+           `Cilindraje`         = p_cilindraje,
+           `Kilometraje_actual` = p_kilometraje,
+           `Precio_alquiler`    = p_precio_alquiler
+     WHERE `Placa` = TRIM(p_placa) AND `Numero_documento` = p_arrendador;
 
     COMMIT;
 END$$
--- 13) Cancela una solicitud pendiente, validando que pertenezca al arrendatario.
--- El trigger asociado cancela automáticamente el contrato pendiente.
-DELIMITER $$
 
+-- 11) El arrendatario cancela su solicitud PENDIENTE.
+--     trg_solicitud_au cancela el contrato pendiente asociado.
 DROP PROCEDURE IF EXISTS `sp_cancelar_solicitud`$$
-
 CREATE PROCEDURE `sp_cancelar_solicitud`(
     IN p_id_solicitud INT,
     IN p_arrendatario INT
 )
 BEGIN
-    DECLARE v_cantidad_solicitudes INT DEFAULT 0;
     DECLARE v_arrendatario INT DEFAULT NULL;
-    DECLARE v_arrendador INT DEFAULT NULL;
-    DECLARE v_placa CHAR(10) DEFAULT NULL;
-    DECLARE v_estado CHAR(20) DEFAULT NULL;
-    DECLARE v_motos INT DEFAULT 0;
+    DECLARE v_estado       CHAR(20) DEFAULT NULL;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    IF p_id_solicitud IS NULL OR p_arrendatario IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Datos de solicitud inválidos.',
-                MYSQL_ERRNO = 45001;
-    END IF;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
     START TRANSACTION;
 
-    SELECT COUNT(*),
-           MAX(`Numero_documento`),
-           MAX(`Numero_documento2`),
-           MAX(`Placa`)
-      INTO v_cantidad_solicitudes,
-           v_arrendatario,
-           v_arrendador,
-           v_placa
+    SELECT `Numero_documento`, `Estado_solicitud` INTO v_arrendatario, v_estado
       FROM `SOLICITUD`
-     WHERE `Id_solicitud` = p_id_solicitud;
+     WHERE `Id_solicitud` = p_id_solicitud
+       FOR UPDATE;
 
-    IF v_cantidad_solicitudes = 0 THEN
+    IF v_estado IS NULL THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no existe.',
-                MYSQL_ERRNO = 45004;
-    ELSEIF v_cantidad_solicitudes > 1 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud tiene identificadores inconsistentes.',
-                MYSQL_ERRNO = 45010;
+            SET MESSAGE_TEXT = 'La solicitud no existe.', MYSQL_ERRNO = 45004;
     END IF;
 
     IF v_arrendatario <> p_arrendatario THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La solicitud no pertenece a este arrendatario.',
-                MYSQL_ERRNO = 45007;
+            SET MESSAGE_TEXT = 'La solicitud no pertenece a este arrendatario.', MYSQL_ERRNO = 45007;
     END IF;
-
-    SELECT COUNT(*)
-      INTO v_motos
-      FROM `MOTOCICLETA`
-     WHERE `Placa` = v_placa
-       AND `Numero_documento` = v_arrendador
-       FOR UPDATE;
-
-    IF v_motos = 0 THEN
-        SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'La motocicleta asociada no existe.',
-                MYSQL_ERRNO = 45010;
-    END IF;
-
-    SELECT `Estado_solicitud`
-      INTO v_estado
-      FROM `SOLICITUD`
-     WHERE `Id_solicitud` = p_id_solicitud
-       AND `Numero_documento` = v_arrendatario
-       AND `Placa` = v_placa
-       AND `Numero_documento2` = v_arrendador
-       FOR UPDATE;
 
     IF v_estado <> 'PENDIENTE' THEN
         SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Solo se pueden cancelar solicitudes pendientes.',
-                MYSQL_ERRNO = 45008;
+            SET MESSAGE_TEXT = 'Solo se pueden cancelar solicitudes pendientes.', MYSQL_ERRNO = 45008;
     END IF;
 
     UPDATE `SOLICITUD`
        SET `Estado_solicitud` = 'CANCELADA'
-     WHERE `Id_solicitud` = p_id_solicitud
-       AND `Numero_documento` = v_arrendatario
-       AND `Placa` = v_placa
-       AND `Numero_documento2` = v_arrendador;
+     WHERE `Id_solicitud` = p_id_solicitud;
 
-    -- trg_solicitud_au cancela el contrato pendiente asociado.
     COMMIT;
 END$$
 
@@ -1844,7 +1400,6 @@ DELIMITER ;
 -- CALL sp_cerrar_contrato(@id_con, 1001, 'FINALIZADO', 1650);
 -- CALL sp_cerrar_contrato(@id_con, 2002, 'CANCELADO', NULL);
 --
--- CALL sp_reporte_ingresos_arrendador(1001, '2026-01-01', '2026-12-31');
 -- CALL sp_actualizar_estados_diarios(@p, @s, @m); SELECT @p, @s, @m;
 --
 -- Los mantenimientos se insertan directamente en INFO_MANTENIMIENTO;

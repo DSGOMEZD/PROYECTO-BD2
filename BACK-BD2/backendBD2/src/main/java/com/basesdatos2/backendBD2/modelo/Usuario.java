@@ -41,6 +41,25 @@ public class Usuario {
         this.rol = rol;
     }
 
+    // Primer y segundo nombre juntos (el segundo es opcional).
+    public String nombres() {
+        return unir(primerNombre, segundoNombre);
+    }
+
+    // Primer y segundo apellido juntos (el segundo es opcional).
+    public String apellidos() {
+        return unir(primerApellido, segundoApellido);
+    }
+
+    // Igual que fn_nombre_completo.
+    public String nombreCompleto() {
+        return nombres() + " " + apellidos();
+    }
+
+    private String unir(String primero, String segundo) {
+        return segundo == null || segundo.isBlank() ? primero : primero + " " + segundo;
+    }
+
     public TipoDocumento getTipoDocumento() { return tipoDocumento; }
     public void setTipoDocumento(TipoDocumento tipoDocumento) { this.tipoDocumento = tipoDocumento; }
 
