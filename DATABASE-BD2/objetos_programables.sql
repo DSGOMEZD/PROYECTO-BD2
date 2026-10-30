@@ -3,8 +3,8 @@
 --
 -- Contenido:
 --   0. Catalogos de estados y codigos de error (excepciones)
---   1. Funciones        (7)
---   2. Triggers         (10)
+--   1. Funciones        (8)
+--   2. Triggers         (12)
 --   3. Procedimientos   (11, dos de ellos con cursores)
 --   4. Evento programado (opcional)
 --   5. Ejemplos de uso para el backend
@@ -45,6 +45,12 @@
 --              VIGENTE   -> FINALIZADO | CANCELADO
 --   PAGO     : PENDIENTE -> PAGADO | VENCIDO | CANCELADO
 --              VENCIDO   -> PAGADO | CANCELADO
+--
+-- Roles (USUARIO.Rol_usuario, sin tablas de subtipo; los triggers lo validan):
+--   MOTOCICLETA.Numero_documento ............ ARRENDADOR
+--   SOLICITUD.Numero_documento / _2 ......... ARRENDATARIO / ARRENDADOR
+--   CONTRATO.Numero_documento / _1 .......... ARRENDATARIO / ARRENDADOR
+--   El rol no se puede cambiar si el usuario ya tiene motos o contratos.
 --
 -- Cascadas automaticas (triggers):
 --   USUARIO pasa a INACTIVO/BLOQUEADO -> sus solicitudes PENDIENTES se cancelan
@@ -97,6 +103,22 @@ BEGIN
           FROM `USUARIO`
          WHERE `Numero_documento` = p_documento
            AND `Estado` = 'ACTIVO'
+    );
+END$$
+
+-- 1 si el usuario existe, esta ACTIVO y tiene el rol indicado, 0 en otro caso.
+-- Reemplaza a las antiguas tablas de subtipo (ARRENDADOR, ARRENDATARIO, ADMINISTRADOR).
+DROP FUNCTION IF EXISTS `fn_usuario_con_rol`$$
+CREATE FUNCTION `fn_usuario_con_rol`(p_documento INT, p_rol CHAR(20))
+RETURNS TINYINT
+READS SQL DATA
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+          FROM `USUARIO`
+         WHERE `Numero_documento` = p_documento
+           AND `Estado` = 'ACTIVO'
+           AND `Rol_usuario` = p_rol
     );
 END$$
 
@@ -306,7 +328,32 @@ BEGIN
     END IF;
 END$$
 
--- 2) Si un usuario queda INACTIVO o BLOQUEADO, se cancelan sus solicitudes
+-- 2) El rol define con que tablas se relaciona el usuario, por eso no se puede
+--    cambiar si ya tiene motos, solicitudes o contratos.
+DROP TRIGGER IF EXISTS `trg_usuario_bu`$$
+CREATE TRIGGER `trg_usuario_bu`
+BEFORE UPDATE ON `USUARIO`
+FOR EACH ROW
+BEGIN
+    SET NEW.`Rol_usuario` = UPPER(TRIM(NEW.`Rol_usuario`));
+
+    IF NEW.`Rol_usuario` <> OLD.`Rol_usuario` THEN
+        IF NEW.`Rol_usuario` NOT IN ('ADMIN', 'ARRENDADOR', 'ARRENDATARIO') THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Rol de usuario invalido.', MYSQL_ERRNO = 45001;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM `MOTOCICLETA` WHERE `Numero_documento` = OLD.`Numero_documento`)
+           OR EXISTS (SELECT 1 FROM `CONTRATO`
+                       WHERE `Numero_documento` = OLD.`Numero_documento`
+                          OR `Numero_documento1` = OLD.`Numero_documento`) THEN
+            SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'No se puede cambiar el rol de un usuario con motos, solicitudes o contratos.', MYSQL_ERRNO = 45008;
+        END IF;
+    END IF;
+END$$
+
+-- 3) Si un usuario queda INACTIVO o BLOQUEADO, se cancelan sus solicitudes
 --    PENDIENTES, tanto las que hizo como arrendatario como las que recibio
 --    como arrendador. (trg_solicitud_au cancela despues sus contratos.)
 DROP TRIGGER IF EXISTS `trg_usuario_au`$$
@@ -323,7 +370,7 @@ BEGIN
     END IF;
 END$$
 
--- 3) Si la poliza deja de estar VIGENTE, la moto que la usa y estaba
+-- 4) Si la poliza deja de estar VIGENTE, la moto que la usa y estaba
 --    DISPONIBLE pasa a INACTIVA (una moto arrendada termina su contrato).
 DROP TRIGGER IF EXISTS `trg_seguro_au`$$
 CREATE TRIGGER `trg_seguro_au`
@@ -338,7 +385,7 @@ BEGIN
     END IF;
 END$$
 
--- 4) Normaliza y valida una motocicleta nueva; placa y seguro unicos.
+-- 5) Normaliza y valida una motocicleta nueva; placa y seguro unicos.
 DROP TRIGGER IF EXISTS `trg_motocicleta_bi`$$
 CREATE TRIGGER `trg_motocicleta_bi`
 BEFORE INSERT ON `MOTOCICLETA`
@@ -367,6 +414,12 @@ BEGIN
             SET MESSAGE_TEXT = 'Estado de motocicleta invalido.', MYSQL_ERRNO = 45001;
     END IF;
 
+    -- Solo un ARRENDADOR activo puede poseer motos.
+    IF fn_usuario_con_rol(NEW.`Numero_documento`, 'ARRENDADOR') = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El propietario de la moto debe ser un arrendador activo.', MYSQL_ERRNO = 45007;
+    END IF;
+
     -- La PK es (Placa, Numero_documento), pero una placa identifica una sola moto.
     IF EXISTS (SELECT 1 FROM `MOTOCICLETA` WHERE `Placa` = NEW.`Placa`) THEN
         SIGNAL SQLSTATE '45000'
@@ -380,7 +433,7 @@ BEGIN
     END IF;
 END$$
 
--- 5) Completa la fecha de la solicitud y verifica las columnas redundantes.
+-- 6) Completa la fecha de la solicitud y verifica las columnas redundantes.
 DROP TRIGGER IF EXISTS `trg_solicitud_bi`$$
 CREATE TRIGGER `trg_solicitud_bi`
 BEFORE INSERT ON `SOLICITUD`
@@ -404,9 +457,16 @@ BEGIN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'Un usuario no puede alquilar su propia motocicleta.', MYSQL_ERRNO = 45007;
     END IF;
+
+    -- La solicitud la hace un ARRENDATARIO y la recibe un ARRENDADOR.
+    IF fn_usuario_con_rol(NEW.`Numero_documento`, 'ARRENDATARIO') = 0
+       OR fn_usuario_con_rol(NEW.`Numero_documento2`, 'ARRENDADOR') = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'La solicitud requiere un arrendatario y un arrendador activos.', MYSQL_ERRNO = 45007;
+    END IF;
 END$$
 
--- 6) Si una solicitud se RECHAZA o se CANCELA, su contrato PENDIENTE
+-- 7) Si una solicitud se RECHAZA o se CANCELA, su contrato PENDIENTE
 --    se cancela automaticamente.
 DROP TRIGGER IF EXISTS `trg_solicitud_au`$$
 CREATE TRIGGER `trg_solicitud_au`
@@ -424,7 +484,21 @@ BEGIN
     END IF;
 END$$
 
--- 7) Controla las transiciones de estado y las fechas del contrato.
+-- 8) El contrato une a un ARRENDATARIO (Numero_documento) con un
+--    ARRENDADOR (Numero_documento1).
+DROP TRIGGER IF EXISTS `trg_contrato_bi`$$
+CREATE TRIGGER `trg_contrato_bi`
+BEFORE INSERT ON `CONTRATO`
+FOR EACH ROW
+BEGIN
+    IF fn_usuario_con_rol(NEW.`Numero_documento`, 'ARRENDATARIO') = 0
+       OR fn_usuario_con_rol(NEW.`Numero_documento1`, 'ARRENDADOR') = 0 THEN
+        SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'El contrato requiere un arrendatario y un arrendador activos.', MYSQL_ERRNO = 45007;
+    END IF;
+END$$
+
+-- 9) Controla las transiciones de estado y las fechas del contrato.
 DROP TRIGGER IF EXISTS `trg_contrato_bu`$$
 CREATE TRIGGER `trg_contrato_bu`
 BEFORE UPDATE ON `CONTRATO`
@@ -450,7 +524,7 @@ BEGIN
     END IF;
 END$$
 
--- 8) Efectos de cerrar un contrato:
+-- 10) Efectos de cerrar un contrato:
 --    CANCELADO  -> sus pagos PENDIENTES o VENCIDOS se cancelan.
 --    FINALIZADO -> la moto ARRENDADA vuelve a DISPONIBLE.
 DROP TRIGGER IF EXISTS `trg_contrato_au`$$
@@ -476,7 +550,7 @@ BEGIN
     END IF;
 END$$
 
--- 9) Controla las transiciones del pago y, al quedar PAGADO, fija
+-- 11) Controla las transiciones del pago y, al quedar PAGADO, fija
 --    automaticamente la fecha de pago.
 DROP TRIGGER IF EXISTS `trg_pago_bu`$$
 CREATE TRIGGER `trg_pago_bu`
@@ -507,7 +581,7 @@ BEGIN
     END IF;
 END$$
 
--- 10) Al registrar un mantenimiento se actualiza el kilometraje de la moto
+-- 12) Al registrar un mantenimiento se actualiza el kilometraje de la moto
 --     (nunca lo disminuye).
 DROP TRIGGER IF EXISTS `trg_mantenimiento_ai`$$
 CREATE TRIGGER `trg_mantenimiento_ai`
@@ -529,7 +603,7 @@ END$$
 -- Cualquier error (de un SIGNAL propio, de un trigger o del motor) deshace
 -- la transaccion y se re-lanza al backend con su mensaje y MYSQL_ERRNO.
 
--- 1) Registra el usuario y su fila de subtipo segun el rol.
+-- 1) Registra el usuario; su rol queda en USUARIO.Rol_usuario.
 DROP PROCEDURE IF EXISTS `sp_registrar_usuario`$$
 CREATE PROCEDURE `sp_registrar_usuario`(
     IN p_tipo_documento   CHAR(20),
@@ -584,15 +658,6 @@ BEGIN
          p_primer_apellido, NULLIF(TRIM(p_segundo_apellido), ''), p_telefono, p_correo,
          CURDATE(), 'ACTIVO', p_contrasena_hash, v_rol);
 
-    CASE v_rol
-        WHEN 'ADMIN' THEN
-            INSERT INTO `ADMINISTRADOR` (`Numero_documento`) VALUES (p_numero_documento);
-        WHEN 'ARRENDADOR' THEN
-            INSERT INTO `ARRENDADOR` (`Numero_documento`) VALUES (p_numero_documento);
-        WHEN 'ARRENDATARIO' THEN
-            INSERT INTO `ARRENDATARIO` (`Numero_documento`) VALUES (p_numero_documento);
-    END CASE;
-
     COMMIT;
 END$$
 
@@ -619,8 +684,7 @@ CREATE PROCEDURE `sp_registrar_motocicleta`(
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; RESIGNAL; END;
 
-    IF fn_usuario_activo(p_arrendador) = 0
-       OR NOT EXISTS (SELECT 1 FROM `ARRENDADOR` WHERE `Numero_documento` = p_arrendador) THEN
+    IF fn_usuario_con_rol(p_arrendador, 'ARRENDADOR') = 0 THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'El arrendador no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;
@@ -772,8 +836,7 @@ BEGIN
 
     SET v_fk_previo = @@SESSION.foreign_key_checks;
 
-    IF fn_usuario_activo(p_arrendatario) = 0
-       OR NOT EXISTS (SELECT 1 FROM `ARRENDATARIO` WHERE `Numero_documento` = p_arrendatario) THEN
+    IF fn_usuario_con_rol(p_arrendatario, 'ARRENDATARIO') = 0 THEN
         SIGNAL SQLSTATE '45000'
             SET MESSAGE_TEXT = 'El arrendatario no existe o no esta activo.', MYSQL_ERRNO = 45002;
     END IF;

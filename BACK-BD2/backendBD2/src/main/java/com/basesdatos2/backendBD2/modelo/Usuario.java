@@ -5,8 +5,8 @@ import com.basesdatos2.backendBD2.modelo.emun.Rol;
 import com.basesdatos2.backendBD2.modelo.emun.TipoDocumento;
 import java.time.LocalDate;
 
-// Tabla USUARIO
-public class Usuario {
+// Tabla USUARIO. Rol_usuario decide la subclase: Administrador, Arrendador o Arrendatario.
+public abstract class Usuario {
 
     private TipoDocumento tipoDocumento;
     private Integer numeroDocumento;
@@ -19,26 +19,19 @@ public class Usuario {
     private LocalDate fechaRegistro;
     private EstadoUsuario estado;
     private String contrasena;   // columna Contraseña (hash)
-    private Rol rol;             // columna Rol_usuario
+    private final Rol rol;       // columna Rol_usuario (la fija cada subclase)
 
-    public Usuario() {}
-
-    public Usuario(TipoDocumento tipoDocumento, Integer numeroDocumento, String primerNombre,
-                   String segundoNombre, String primerApellido, String segundoApellido,
-                   Integer telefono, String correo, LocalDate fechaRegistro,
-                   EstadoUsuario estado, String contrasena, Rol rol) {
-        this.tipoDocumento = tipoDocumento;
-        this.numeroDocumento = numeroDocumento;
-        this.primerNombre = primerNombre;
-        this.segundoNombre = segundoNombre;
-        this.primerApellido = primerApellido;
-        this.segundoApellido = segundoApellido;
-        this.telefono = telefono;
-        this.correo = correo;
-        this.fechaRegistro = fechaRegistro;
-        this.estado = estado;
-        this.contrasena = contrasena;
+    protected Usuario(Rol rol) {
         this.rol = rol;
+    }
+
+    // Crea la subclase que corresponde al rol.
+    public static Usuario segunRol(Rol rol) {
+        return switch (rol) {
+            case ADMIN -> new Administrador();
+            case ARRENDADOR -> new Arrendador();
+            case ARRENDATARIO -> new Arrendatario();
+        };
     }
 
     // Primer y segundo nombre juntos (el segundo es opcional).
@@ -94,5 +87,4 @@ public class Usuario {
     public void setContrasena(String contrasena) { this.contrasena = contrasena; }
 
     public Rol getRol() { return rol; }
-    public void setRol(Rol rol) { this.rol = rol; }
 }

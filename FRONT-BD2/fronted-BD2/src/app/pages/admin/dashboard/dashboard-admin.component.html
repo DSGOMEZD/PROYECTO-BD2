@@ -1,12 +1,37 @@
-<app-navbar rol="Administrador" />
+<h1>Panel de administración</h1>
+<p class="subtitle">Actividad de MotoGo en los últimos 7 días.</p>
 
-<main class="dashboard">
-  <h1>Panel de administración</h1>
-  <p class="subtitle">Gestiona usuarios, motos y alquileres de MotoGo.</p>
-
+@if (cargando) {
+  <p class="vacio">Cargando…</p>
+} @else {
   <div class="tiles">
-    <div class="tile"><h3>Usuarios</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Motos</h3><p>Próximamente</p></div>
-    <div class="tile"><h3>Alquileres</h3><p>Próximamente</p></div>
+    @for (m of modulos; track m.valor) {
+      <a class="tile tile-link" routerLink="../logs" [queryParams]="{ modulo: m.valor }">
+        <span class="tile-num">{{ cantidad(m.valor) }}</span>
+        <h3>{{ m.texto }}</h3>
+        <p>Ver logs de {{ m.texto.toLowerCase() }}.</p>
+      </a>
+    }
   </div>
-</main>
+
+  <h2 class="seccion-titulo">Últimos eventos</h2>
+  @if (recientes.length === 0) {
+    <p class="vacio">No hubo actividad esta semana.</p>
+  } @else {
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <tbody>
+          @for (l of recientes; track l.id) {
+            <tr>
+              <td>
+                <strong>{{ l.nombreUsuario }}</strong>
+                <div class="celda-sub">{{ l.fecha.slice(0, 10) }} · {{ l.fecha.slice(11, 16) }}</div>
+              </td>
+              <td>{{ l.descripcion }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

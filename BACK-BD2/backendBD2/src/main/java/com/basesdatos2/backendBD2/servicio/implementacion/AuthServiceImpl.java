@@ -26,7 +26,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void registrar(RegistroRequestDTO dto) {
-        Usuario usuario = mm.map(dto, Usuario.class);
+        Usuario usuario = Usuario.segunRol(dto.rol());
+        mm.map(dto, usuario);
         usuario.setContrasena(passwordEncoder.encode(dto.contrasena()));
         usuarioRepository.registrar(usuario);
     }

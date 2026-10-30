@@ -24,20 +24,14 @@ CREATE TABLE `USUARIO` (
     CONSTRAINT `USUARIO_PK` PRIMARY KEY (`Numero_documento`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `ADMINISTRADOR` (
-    `Numero_documento` INT NOT NULL COMMENT 'Numero del documento de identificacion unico para identificar al usuario.',
-    CONSTRAINT `ADMINISTRADOR_PK` PRIMARY KEY (`Numero_documento`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE `ARRENDADOR` (
-    `Numero_documento` INT NOT NULL COMMENT 'Numero del documento de identificacion unico para identificar al usuario.',
-    CONSTRAINT `ARRENDADOR_PK` PRIMARY KEY (`Numero_documento`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE `ARRENDATARIO` (
-    `Numero_documento` INT NOT NULL COMMENT 'Numero del documento de identificacion unico para identificar al usuario.',
-    CONSTRAINT `ARRENDATARIO_PK` PRIMARY KEY (`Numero_documento`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Roles: no hay tablas de subtipo (ADMINISTRADOR, ARRENDADOR, ARRENDATARIO).
+-- USUARIO.Rol_usuario define el tipo de usuario y, segun ese atributo, el usuario
+-- participa (de forma parcial) en unas relaciones u otras:
+--   ARRENDADOR   -> posee MOTOCICLETA, recibe SOLICITUD, firma CONTRATO como arrendador
+--   ARRENDATARIO -> hace SOLICITUD, firma CONTRATO como arrendatario
+--   ADMIN        -> no participa en ninguna; solo consulta
+-- Las FK apuntan a USUARIO y garantizan que el usuario exista; que tenga el rol
+-- correcto lo validan los triggers y procedimientos (objetos_programables.sql).
 
 CREATE TABLE `SEGURO` (
     `Estado_poliza`         CHAR(20) NOT NULL COMMENT 'Estado en el que se encuentra la poliza actualmente.',
@@ -138,25 +132,14 @@ ALTER TABLE `CONTRATO`
 -- Llaves foraneas: se agregan despues de crear todas las tablas.
 -- ================================================================
 
-ALTER TABLE `ADMINISTRADOR`
-    ADD CONSTRAINT `ADMINISTRADOR_USUARIO_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
-
-ALTER TABLE `ARRENDADOR`
-    ADD CONSTRAINT `ARRENDADOR_USUARIO_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
-
-ALTER TABLE `ARRENDATARIO`
-    ADD CONSTRAINT `ARRENDATARIO_USUARIO_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
-
+-- Las FK hacia USUARIO conservan el nombre del rol que debe tener el usuario.
 ALTER TABLE `CONTRATO`
     ADD CONSTRAINT `CONTRATO_ARRENDADOR_FK`
-    FOREIGN KEY (`Numero_documento1`) REFERENCES `ARRENDADOR` (`Numero_documento`);
+    FOREIGN KEY (`Numero_documento1`) REFERENCES `USUARIO` (`Numero_documento`);
 
 ALTER TABLE `CONTRATO`
     ADD CONSTRAINT `CONTRATO_ARRENDATARIO_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `ARRENDATARIO` (`Numero_documento`);
+    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
 
 ALTER TABLE `CONTRATO`
     ADD CONSTRAINT `CONTRATO_SOLICITUD_FK`
@@ -170,7 +153,7 @@ ALTER TABLE `INFO_MANTENIMIENTO`
 
 ALTER TABLE `MOTOCICLETA`
     ADD CONSTRAINT `MOTOCICLETA_ARRENDADOR_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `ARRENDADOR` (`Numero_documento`);
+    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
 
 ALTER TABLE `MOTOCICLETA`
     ADD CONSTRAINT `MOTOCICLETA_SEGURO_FK`
@@ -183,7 +166,7 @@ ALTER TABLE `PAGO`
 
 ALTER TABLE `SOLICITUD`
     ADD CONSTRAINT `SOLICITUD_ARRENDATARIO_FK`
-    FOREIGN KEY (`Numero_documento`) REFERENCES `ARRENDATARIO` (`Numero_documento`);
+    FOREIGN KEY (`Numero_documento`) REFERENCES `USUARIO` (`Numero_documento`);
 
 ALTER TABLE `SOLICITUD`
     ADD CONSTRAINT `SOLICITUD_CONTRATO_FK`

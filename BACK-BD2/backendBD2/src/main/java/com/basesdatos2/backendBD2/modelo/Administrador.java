@@ -1,16 +1,11 @@
 package com.basesdatos2.backendBD2.modelo;
 
-// Tabla ADMINISTRADOR (subtipo de USUARIO)
-public class Administrador {
+import com.basesdatos2.backendBD2.modelo.emun.Rol;
 
-    private Integer numeroDocumento;
+// USUARIO con Rol_usuario = ADMIN
+public class Administrador extends Usuario {
 
-    public Administrador() {}
-
-    public Administrador(Integer numeroDocumento) {
-        this.numeroDocumento = numeroDocumento;
+    public Administrador() {
+        super(Rol.ADMIN);
     }
-
-    public Integer getNumeroDocumento() { return numeroDocumento; }
-    public void setNumeroDocumento(Integer numeroDocumento) { this.numeroDocumento = numeroDocumento; }
 }

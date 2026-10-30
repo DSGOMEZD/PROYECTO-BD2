@@ -13,7 +13,9 @@ import { MisMotosComponent } from './pages/arrendador/motos/mis-motos.component'
 import { SolicitudesRecibidasComponent } from './pages/arrendador/solicitudes/solicitudes-recibidas.component';
 import { ContratosArrendadorComponent } from './pages/arrendador/contratos/contratos-arrendador.component';
 import { PagosRecibidosComponent } from './pages/arrendador/pagos/pagos-recibidos.component';
+import { AdminLayoutComponent } from './pages/admin/layout/admin-layout.component';
 import { DashboardAdminComponent } from './pages/admin/dashboard/dashboard-admin.component';
+import { LogsAdminComponent } from './pages/admin/logs/logs-admin.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'login', pathMatch: 'full' },
@@ -50,8 +52,16 @@ export const routes: Routes = [
     ]
   },
 
-  // Administrador
-  { path: 'admin', component: DashboardAdminComponent },
+  // Administrador (layout con pestañas)
+  {
+    path: 'admin',
+    component: AdminLayoutComponent,
+    children: [
+      { path: '', redirectTo: 'inicio', pathMatch: 'full' },
+      { path: 'inicio', component: DashboardAdminComponent },
+      { path: 'logs', component: LogsAdminComponent }
+    ]
+  },
 
   // Cualquier ruta desconocida vuelve al login
   { path: '**', redirectTo: 'login' }

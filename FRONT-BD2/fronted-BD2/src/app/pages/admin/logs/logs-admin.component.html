@@ -1,0 +1,74 @@
+<h1>Logs de actividad</h1>
+<p class="subtitle">Pagos, publicaciones de motos, solicitudes y contratos registrados en la app.</p>
+
+<div class="busqueda-fechas">
+  <label class="field">
+    Desde
+    <input type="date" name="desde" [(ngModel)]="desde" [max]="hasta || hoy" />
+  </label>
+
+  <label class="field">
+    Hasta
+    <input type="date" name="hasta" [(ngModel)]="hasta" [min]="desde" [max]="hoy" />
+  </label>
+
+  <button class="btn btn-sm" (click)="buscar()" [disabled]="cargando">Buscar</button>
+</div>
+
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
+@if (cargando) {
+  <p class="vacio">Cargando logs…</p>
+} @else {
+  <div class="chips">
+    <button class="chip" [class.active]="moduloFiltro === 'TODOS'" (click)="moduloFiltro = 'TODOS'">
+      Todos <span class="chip-num">{{ logs.length }}</span>
+    </button>
+    @for (m of modulos; track m.valor) {
+      <button class="chip" [class.active]="moduloFiltro === m.valor" (click)="moduloFiltro = m.valor">
+        {{ m.texto }} <span class="chip-num">{{ cantidad(m.valor) }}</span>
+      </button>
+    }
+  </div>
+
+  @if (logsFiltrados.length === 0) {
+    <p class="vacio">No hay eventos en este rango de fechas.</p>
+  } @else {
+    <p class="resultados">{{ logsFiltrados.length }} {{ logsFiltrados.length === 1 ? 'evento' : 'eventos' }}</p>
+    <div class="tabla-wrap">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Módulo</th>
+            <th>Acción</th>
+            <th>Usuario</th>
+            <th>Detalle</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (l of logsFiltrados; track l.id) {
+            <tr>
+              <td>
+                {{ l.fecha.slice(0, 10) }}
+                <div class="celda-sub">{{ l.fecha.slice(11, 19) }}</div>
+              </td>
+              <td>
+                <strong>{{ textoModulo(l.modulo) }}</strong>
+                <div class="celda-sub">{{ l.referencia }}</div>
+              </td>
+              <td><app-estado-badge [estado]="l.accion" /></td>
+              <td>
+                {{ l.nombreUsuario }}
+                <div class="celda-sub">{{ l.rolUsuario.toLowerCase() }} · {{ l.documentoUsuario }}</div>
+              </td>
+              <td>{{ l.descripcion }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}

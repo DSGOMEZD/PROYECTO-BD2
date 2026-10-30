@@ -16,6 +16,12 @@ export function sumarMeses(fecha: string, meses: number): string {
   return aISO(new Date(y, m - 1 + meses, d));
 }
 
+// Suma (o resta, si es negativo) días a una fecha YYYY-MM-DD
+export function sumarDias(fecha: string, dias: number): string {
+  const [y, m, d] = fecha.split('-').map(Number);
+  return aISO(new Date(y, m - 1, d + dias));
+}
+
 // true si los periodos [inicioA, finA] y [inicioB, finB] tienen algún día en común
 export function periodosSeCruzan(inicioA: string, finA: string, inicioB: string, finB: string): boolean {
   return inicioA <= finB && inicioB <= finA;

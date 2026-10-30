@@ -1,16 +1,11 @@
 package com.basesdatos2.backendBD2.modelo;
 
-// Tabla ARRENDATARIO (subtipo de USUARIO): quien alquila motocicletas
-public class Arrendatario {
+import com.basesdatos2.backendBD2.modelo.emun.Rol;
 
-    private Integer numeroDocumento;
+// USUARIO con Rol_usuario = ARRENDATARIO: quien alquila motocicletas
+public class Arrendatario extends Usuario {
 
-    public Arrendatario() {}
-
-    public Arrendatario(Integer numeroDocumento) {
-        this.numeroDocumento = numeroDocumento;
+    public Arrendatario() {
+        super(Rol.ARRENDATARIO);
     }
-
-    public Integer getNumeroDocumento() { return numeroDocumento; }
-    public void setNumeroDocumento(Integer numeroDocumento) { this.numeroDocumento = numeroDocumento; }
 }
