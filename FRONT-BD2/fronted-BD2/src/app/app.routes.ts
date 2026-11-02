@@ -16,6 +16,8 @@ import { PagosRecibidosComponent } from './pages/arrendador/pagos/pagos-recibido
 import { AdminLayoutComponent } from './pages/admin/layout/admin-layout.component';
 import { DashboardAdminComponent } from './pages/admin/dashboard/dashboard-admin.component';
 import { LogsAdminComponent } from './pages/admin/logs/logs-admin.component';
+import { rolGuard } from './core/guards/rol.guard';
+import { Rol } from './core/models/rol.model';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'login', pathMatch: 'full' },
@@ -28,6 +30,7 @@ export const routes: Routes = [
   {
     path: 'arrendatario',
     component: ArrendatarioLayoutComponent,
+    canActivate: [rolGuard(Rol.ARRENDATARIO)],
     children: [
       { path: '', redirectTo: 'inicio', pathMatch: 'full' },
       { path: 'inicio', component: DashboardArrendatarioComponent },
@@ -42,6 +45,7 @@ export const routes: Routes = [
   {
     path: 'arrendador',
     component: ArrendadorLayoutComponent,
+    canActivate: [rolGuard(Rol.ARRENDADOR)],
     children: [
       { path: '', redirectTo: 'inicio', pathMatch: 'full' },
       { path: 'inicio', component: DashboardArrendadorComponent },
@@ -52,10 +56,11 @@ export const routes: Routes = [
     ]
   },
 
-  // Administrador (layout con pestañas)
+  // Administrador (layout con pestañas): solo el rol ADMIN; es el único que ve los logs
   {
     path: 'admin',
     component: AdminLayoutComponent,
+    canActivate: [rolGuard(Rol.ADMIN)],
     children: [
       { path: '', redirectTo: 'inicio', pathMatch: 'full' },
       { path: 'inicio', component: DashboardAdminComponent },

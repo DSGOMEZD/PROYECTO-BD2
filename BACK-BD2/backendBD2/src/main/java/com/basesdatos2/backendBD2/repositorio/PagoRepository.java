@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class PagoRepository {
@@ -45,6 +46,18 @@ public class PagoRepository {
                 this::mapear,
                 documentoArrendador
         );
+    }
+
+    public Optional<Pago> buscarPorId(Integer idPago) {
+        return jdbcTemplate.query(SQL_BASE + "WHERE Id_pago = ?", this::mapear, idPago)
+                .stream()
+                .findFirst();
+    }
+
+    public List<Pago> listarPorContrato(Integer idContrato) {
+        return jdbcTemplate.query(
+                SQL_BASE + "WHERE id_contrato = ? ORDER BY Fecha_vencimiento, Id_pago",
+                this::mapear, idContrato);
     }
 
     public void registrar(Integer idPago, Integer documentoArrendatario, MetodoPago metodoPago) {

@@ -58,6 +58,12 @@ public class UsuarioRepository {
         return usuarios.stream().findFirst();
     }
 
+    public boolean existeConRol(Rol rol) {
+        Integer cantidad = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM USUARIO WHERE Rol_usuario = ?", Integer.class, rol.name());
+        return cantidad != null && cantidad > 0;
+    }
+
     private Usuario mapear(ResultSet rs, int fila) throws SQLException {
         Usuario usuario = Usuario.segunRol(Rol.valueOf(rs.getString("Rol_usuario").trim()));
         usuario.setTipoDocumento(

@@ -8,17 +8,24 @@ export const MODULOS_LOG: { valor: ModuloLog; texto: string }[] = [
   { valor: 'CONTRATO', texto: 'Contratos' }
 ];
 
-// Evento que devuelve GET /api/admin/logs
+// Valor de un campo del detalle (MongoDB guarda texto, números, booleanos, objetos y listas)
+export type ValorDetalle = string | number | boolean | null | ValorDetalle[] | { [clave: string]: ValorDetalle };
+
+// Evento que devuelve GET /api/admin/logs (sacado de su cubeta en MongoDB)
 export interface LogEvento {
   id: string;
-  fecha: string;            // fecha y hora ISO (YYYY-MM-DDTHH:mm:ss)
+  fecha: string;            // fecha y hora ISO (YYYY-MM-DDTHH:mm:ss.SSS)
   modulo: ModuloLog;
-  accion: string;           // CREADA, APROBADA, PAGADO, PUBLICADA, FINALIZADO...
+  accion: string;           // CREADA, APROBADA, GENERADO, PAGADO, PUBLICADA, FINALIZADO...
   documentoUsuario: number; // quién hizo la acción
   nombreUsuario: string;
   rolUsuario: string;
-  referencia: string;       // id del registro afectado (placa, #solicitud, #contrato, #pago)
+  referencia: string;       // registro afectado (placa, Solicitud #5, Contrato #3, Pago #2)
   descripcion: string;
+  detalle: { [clave: string]: ValorDetalle }; // snapshot de los datos al momento del evento
+  ip?: string;
+  userAgent?: string;
+  endpoint?: string;        // ej. "PATCH /api/pagos/2/pagar"
 }
 
 // Filtros que el front envía como query params

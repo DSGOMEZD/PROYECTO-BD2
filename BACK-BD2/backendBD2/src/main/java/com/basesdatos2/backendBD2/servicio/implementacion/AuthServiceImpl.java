@@ -5,6 +5,8 @@ import com.basesdatos2.backendBD2.modelo.dto.LoginRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.RegistroRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.UsuarioResponseDTO;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoUsuario;
+import com.basesdatos2.backendBD2.modelo.emun.Rol;
+import com.basesdatos2.backendBD2.modelo.excepcion.NoAutorizadoException;
 import com.basesdatos2.backendBD2.repositorio.UsuarioRepository;
 import com.basesdatos2.backendBD2.servicio.AuthService;
 import org.modelmapper.ModelMapper;
@@ -26,6 +28,10 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public void registrar(RegistroRequestDTO dto) {
+        // El administrador no se registra desde la app: se crea al arrancar el back.
+        if (dto.rol() == Rol.ADMIN) {
+            throw new NoAutorizadoException("No es posible registrarse como administrador.");
+        }
         Usuario usuario = Usuario.segunRol(dto.rol());
         mm.map(dto, usuario);
         usuario.setContrasena(passwordEncoder.encode(dto.contrasena()));

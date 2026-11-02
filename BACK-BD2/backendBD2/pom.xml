@@ -58,6 +58,12 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
+        <!-- Logs de actividad en MongoDB (patron bucket), via MongoTemplate -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+
         <!-- Conversion entidad <-> DTO en los servicios (los DTO son records) -->
         <dependency>
             <groupId>org.modelmapper</groupId>

@@ -553,3 +553,21 @@ a:hover { text-decoration: underline; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ===== Logs del administrador: fila expandible con el detalle guardado en MongoDB ===== */
+.logs-texto { margin-left: auto; min-width: 220px; }
+.log-fila { cursor: pointer; }
+.log-fila.log-abierto, .log-fila.log-abierto:hover { background: #fff4ec; }
+.log-detalle-fila td { background: #fcfcfc; padding: 0; }
+.log-detalle { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; padding: 18px 20px; }
+.log-detalle-bloque h4 { margin: 0 0 10px; font-size: .8rem; text-transform: uppercase; letter-spacing: .5px; color: var(--gray); }
+.log-campos { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: .88rem; }
+.log-campos dt { color: var(--gray); }
+.log-campos dd { margin: 0; color: var(--dark); word-break: break-word; }
+.log-campos-anidado { padding: 8px 12px; border-left: 3px solid var(--border); background: var(--white); border-radius: 6px; margin-bottom: 6px; }
+.log-campos code { font-size: .82rem; background: var(--bg); padding: 1px 6px; border-radius: 4px; }
+.log-ua { font-size: .8rem; color: var(--gray); }
+@media (max-width: 760px) {
+  .log-detalle { grid-template-columns: 1fr; }
+  .logs-texto { margin-left: 0; width: 100%; }
+}

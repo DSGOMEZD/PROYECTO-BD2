@@ -14,6 +14,7 @@ export class DashboardAdminComponent implements OnInit {
 
   logs: LogEvento[] = [];
   cargando = true;
+  error = '';
   modulos = MODULOS_LOG;
 
   constructor(private logService: LogService) {}
@@ -21,9 +22,15 @@ export class DashboardAdminComponent implements OnInit {
   ngOnInit() {
     // Resumen de la última semana
     this.logService.listar({ desde: sumarDias(hoyISO(), -6), hasta: hoyISO() })
-      .subscribe(logs => {
-        this.logs = logs;
-        this.cargando = false;
+      .subscribe({
+        next: logs => {
+          this.logs = logs;
+          this.cargando = false;
+        },
+        error: err => {
+          this.error = err?.error?.mensaje ?? err?.message ?? 'No se pudo cargar la actividad.';
+          this.cargando = false;
+        }
       });
   }
 

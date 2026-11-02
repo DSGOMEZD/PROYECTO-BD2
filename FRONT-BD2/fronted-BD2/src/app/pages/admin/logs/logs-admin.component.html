@@ -13,6 +13,11 @@
   </label>
 
   <button class="btn btn-sm" (click)="buscar()" [disabled]="cargando">Buscar</button>
+
+  <label class="field logs-texto">
+    Filtrar
+    <input type="search" name="texto" [(ngModel)]="texto" placeholder="Usuario, documento, placa, #…" />
+  </label>
 </div>
 
 @if (error) {
@@ -24,7 +29,7 @@
 } @else {
   <div class="chips">
     <button class="chip" [class.active]="moduloFiltro === 'TODOS'" (click)="moduloFiltro = 'TODOS'">
-      Todos <span class="chip-num">{{ logs.length }}</span>
+      Todos <span class="chip-num">{{ total }}</span>
     </button>
     @for (m of modulos; track m.valor) {
       <button class="chip" [class.active]="moduloFiltro === m.valor" (click)="moduloFiltro = m.valor">
@@ -34,7 +39,7 @@
   </div>
 
   @if (logsFiltrados.length === 0) {
-    <p class="vacio">No hay eventos en este rango de fechas.</p>
+    <p class="vacio">No hay eventos con estos filtros.</p>
   } @else {
     <p class="resultados">{{ logsFiltrados.length }} {{ logsFiltrados.length === 1 ? 'evento' : 'eventos' }}</p>
     <div class="tabla-wrap">
@@ -46,11 +51,12 @@
             <th>Acción</th>
             <th>Usuario</th>
             <th>Detalle</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           @for (l of logsFiltrados; track l.id) {
-            <tr>
+            <tr class="log-fila" [class.log-abierto]="abierto === l.id" (click)="alternar(l.id)">
               <td>
                 {{ l.fecha.slice(0, 10) }}
                 <div class="celda-sub">{{ l.fecha.slice(11, 19) }}</div>
@@ -65,10 +71,69 @@
                 <div class="celda-sub">{{ l.rolUsuario.toLowerCase() }} · {{ l.documentoUsuario }}</div>
               </td>
               <td>{{ l.descripcion }}</td>
+              <td>
+                <button class="btn-link" type="button" (click)="alternar(l.id); $event.stopPropagation()">
+                  {{ abierto === l.id ? 'Ocultar' : 'Ver más' }}
+                </button>
+              </td>
             </tr>
+
+            @if (abierto === l.id) {
+              <tr class="log-detalle-fila">
+                <td colspan="6">
+                  <div class="log-detalle">
+                    <div class="log-detalle-bloque">
+                      <h4>Datos del evento</h4>
+                      <dl class="log-campos">
+                        @for (c of campos(l.detalle); track c.etiqueta) {
+                          <ng-container *ngTemplateOutlet="campoTpl; context: { $implicit: c }" />
+                        }
+                      </dl>
+                    </div>
+
+                    <div class="log-detalle-bloque">
+                      <h4>Petición</h4>
+                      <dl class="log-campos">
+                        <dt>Id del log</dt><dd><code>{{ l.id }}</code></dd>
+                        <dt>Fecha exacta</dt><dd>{{ l.fecha }}</dd>
+                        <dt>Endpoint</dt><dd><code>{{ l.endpoint || '—' }}</code></dd>
+                        <dt>IP</dt><dd>{{ l.ip || '—' }}</dd>
+                        <dt>Navegador</dt><dd class="log-ua">{{ l.userAgent || '—' }}</dd>
+                      </dl>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            }
           }
         </tbody>
       </table>
     </div>
   }
 }
+
+<!-- Un campo del detalle: valor simple, objeto anidado o lista de objetos -->
+<ng-template #campoTpl let-c>
+  <dt>{{ c.etiqueta }}</dt>
+  @if (c.hijos) {
+    <dd>
+      <dl class="log-campos log-campos-anidado">
+        @for (h of c.hijos; track h.etiqueta) {
+          <ng-container *ngTemplateOutlet="campoTpl; context: { $implicit: h }" />
+        }
+      </dl>
+    </dd>
+  } @else if (c.lista) {
+    <dd>
+      @for (item of c.lista; track $index) {
+        <dl class="log-campos log-campos-anidado">
+          @for (h of item; track h.etiqueta) {
+            <ng-container *ngTemplateOutlet="campoTpl; context: { $implicit: h }" />
+          }
+        </dl>
+      }
+    </dd>
+  } @else {
+    <dd>{{ c.valor }}</dd>
+  }
+</ng-template>

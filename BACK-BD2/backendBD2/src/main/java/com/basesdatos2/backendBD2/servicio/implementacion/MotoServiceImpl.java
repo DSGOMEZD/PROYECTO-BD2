@@ -5,28 +5,36 @@ import com.basesdatos2.backendBD2.modelo.Seguro;
 import com.basesdatos2.backendBD2.modelo.Usuario;
 import com.basesdatos2.backendBD2.modelo.dto.MotocicletaRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.MotocicletaResponseDTO;
+import com.basesdatos2.backendBD2.modelo.dto.SeguroRequestDTO;
 import com.basesdatos2.backendBD2.modelo.dto.SeguroResponseDTO;
 import com.basesdatos2.backendBD2.modelo.emun.EstadoMotocicleta;
+import com.basesdatos2.backendBD2.modelo.emun.ModuloLog;
 import com.basesdatos2.backendBD2.repositorio.MotoRepository;
 import com.basesdatos2.backendBD2.repositorio.UsuarioRepository;
+import com.basesdatos2.backendBD2.servicio.LogService;
 import com.basesdatos2.backendBD2.servicio.MotoService;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MotoServiceImpl implements MotoService {
     private final MotoRepository motoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final LogService logService;
     private final ModelMapper mm;
 
     public MotoServiceImpl(MotoRepository motoRepository,
                            UsuarioRepository usuarioRepository,
+                           LogService logService,
                            ModelMapper mm) {
         this.motoRepository = motoRepository;
         this.usuarioRepository = usuarioRepository;
+        this.logService = logService;
         this.mm = mm;
     }
 
@@ -47,7 +55,18 @@ public class MotoServiceImpl implements MotoService {
 
     @Override
     public Integer registrar(Integer documentoArrendador, MotocicletaRequestDTO dto) {
-        return motoRepository.registrar(aEntidad(documentoArrendador, dto), mm.map(dto.seguro(), Seguro.class));
+        Integer idSeguro = motoRepository.registrar(aEntidad(documentoArrendador, dto), mm.map(dto.seguro(), Seguro.class));
+
+        Map<String, Object> detalle = detalleMoto(dto);
+        detalle.put("estado", motoRepository.buscar(dto.placa(), documentoArrendador)
+                .map(Motocicleta::getEstado).orElse(null));
+        detalle.put("idSeguro", idSeguro);
+
+        logService.registrar(ModuloLog.MOTO, "PUBLICADA", documentoArrendador, dto.placa(),
+                "Publicó la moto " + dto.marca() + " " + dto.modelo() + " (" + dto.placa() + ") a "
+                        + LogService.pesos(dto.precioDia()) + "/día.",
+                detalle);
+        return idSeguro;
     }
 
     @Override
@@ -67,7 +86,18 @@ public class MotoServiceImpl implements MotoService {
             String placa,
             Integer documentoArrendador,
             EstadoMotocicleta estado) {
+        EstadoMotocicleta anterior = motoRepository.buscar(placa, documentoArrendador)
+                .map(Motocicleta::getEstado).orElse(null);
+
         motoRepository.cambiarEstado(placa, documentoArrendador, estado);
+
+        Map<String, Object> detalle = new LinkedHashMap<>();
+        detalle.put("placa", placa);
+        detalle.put("estadoAnterior", anterior);
+        detalle.put("estadoNuevo", estado);
+        logService.registrar(ModuloLog.MOTO, estado.name(), documentoArrendador, placa,
+                "Cambió el estado de la moto " + placa + " de " + anterior + " a " + estado + ".",
+                detalle);
     }
 
     @Override
@@ -76,9 +106,44 @@ public class MotoServiceImpl implements MotoService {
             Integer documentoArrendador,
             MotocicletaRequestDTO dto
     ) {
+        Motocicleta antes = motoRepository.buscar(placa, documentoArrendador).orElse(null);
+
         Motocicleta moto = aEntidad(documentoArrendador, dto);
         moto.setPlaca(placa);
         motoRepository.actualizar(moto, mm.map(dto.seguro(), Seguro.class));
+
+        Map<String, Object> detalle = detalleMoto(dto);
+        detalle.put("placa", placa);
+        if (antes != null) {
+            detalle.put("precioDiaAnterior", antes.getPrecioAlquiler());
+            detalle.put("kilometrajeAnterior", antes.getKilometrajeActual());
+        }
+        logService.registrar(ModuloLog.MOTO, "ACTUALIZADA", documentoArrendador, placa,
+                "Actualizó la publicación de la moto " + dto.marca() + " " + dto.modelo() + " (" + placa + ").",
+                detalle);
+    }
+
+    // Todo lo que el arrendador envio al publicar o editar la moto, con su seguro.
+    private Map<String, Object> detalleMoto(MotocicletaRequestDTO dto) {
+        Map<String, Object> detalle = new LinkedHashMap<>();
+        detalle.put("placa", dto.placa());
+        detalle.put("marca", dto.marca());
+        detalle.put("modelo", dto.modelo());
+        detalle.put("anio", dto.anio());
+        detalle.put("color", dto.color());
+        detalle.put("cilindraje", dto.cilindraje());
+        detalle.put("kilometraje", dto.kilometraje());
+        detalle.put("precioDia", dto.precioDia());
+        detalle.put("descripcion", dto.descripcion());
+
+        SeguroRequestDTO seguro = dto.seguro();
+        Map<String, Object> datosSeguro = new LinkedHashMap<>();
+        datosSeguro.put("numeroPoliza", seguro.numeroPoliza());
+        datosSeguro.put("aseguradora", seguro.aseguradora());
+        datosSeguro.put("fechaInicioVigencia", seguro.fechaInicioVigencia());
+        datosSeguro.put("estadoPoliza", seguro.estadoPoliza());
+        detalle.put("seguro", datosSeguro);
+        return detalle;
     }
 
     // Campos con el mismo nombre los copia ModelMapper; los demas se llenan a mano.

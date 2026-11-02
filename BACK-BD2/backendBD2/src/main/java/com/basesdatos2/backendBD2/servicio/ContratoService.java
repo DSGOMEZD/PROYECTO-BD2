@@ -9,4 +9,7 @@ public interface ContratoService {
     ContratoResponseDTO buscarPorId(Integer idContrato);
     void cancelar(Integer idContrato, Integer documento);
     void finalizar(Integer idContrato, Integer documentoArrendador, Integer kilometrajeFinal);
-}
+
+    // Log de la generacion del contrato (al aprobar la solicitud), con sus pagos.
+    void registrarLogGenerado(ContratoResponseDTO contrato, Integer documentoArrendador);
+}

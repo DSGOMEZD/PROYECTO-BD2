@@ -1,6 +1,10 @@
 <h1>Panel de administración</h1>
 <p class="subtitle">Actividad de MotoGo en los últimos 7 días.</p>
 
+@if (error) {
+  <p class="error">{{ error }}</p>
+}
+
 @if (cargando) {
   <p class="vacio">Cargando…</p>
 } @else {
