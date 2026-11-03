@@ -5,6 +5,10 @@
 -- Antes de ejecutar: seleccione su base de datos en MySQL Workbench
 -- o agregue una línea USE nombre_de_la_base_de_datos;
 -- ================================================================
+CREATE DATABASE IF NOT EXISTS alquiler_motos;
+
+-- Seleccionar la base de datos
+USE alquiler_motos;
 
 SET NAMES utf8mb4;
 
