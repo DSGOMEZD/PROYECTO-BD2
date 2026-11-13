@@ -19,11 +19,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthServiceImpl implements AuthService {
     private final UsuarioRepository usuarioRepository;
     private final ModelMapper mm;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final BCryptPasswordEncoder passwordEncoder;
 
-    public AuthServiceImpl(UsuarioRepository usuarioRepository, ModelMapper mm) {
+    public AuthServiceImpl(UsuarioRepository usuarioRepository,
+                           ModelMapper mm,
+                           BCryptPasswordEncoder passwordEncoder) {
         this.usuarioRepository = usuarioRepository;
         this.mm = mm;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Override
@@ -45,7 +48,7 @@ public class AuthServiceImpl implements AuthService {
                         HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos."));
 
         if (usuario.getEstado() != EstadoUsuario.ACTIVO
-                || !passwordEncoder.matches(dto.contrasena(), usuario.getContrasena())) {
+                || !validarContrasena(dto.contrasena(), usuario)) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED, "Correo o contraseña incorrectos.");
         }
@@ -54,5 +57,28 @@ public class AuthServiceImpl implements AuthService {
         respuesta.setNombre(usuario.nombres());
         respuesta.setApellido(usuario.apellidos());
         return respuesta;
+    }
+
+    private boolean validarContrasena(String contrasenaIngresada, Usuario usuario) {
+        String almacenada = usuario.getContrasena();
+        if (almacenada == null || contrasenaIngresada == null) {
+            return false;
+        }
+        if (esHashBCrypt(almacenada)) {
+            return passwordEncoder.matches(contrasenaIngresada, almacenada);
+        }
+        // Si un registro fue insertado manualmente en texto plano en MySQL,
+        // valida una vez y lo migra inmediatamente a hash BCrypt irreversible.
+        if (contrasenaIngresada.equals(almacenada)) {
+            String nuevoHash = passwordEncoder.encode(contrasenaIngresada);
+            usuarioRepository.actualizarContrasena(usuario.getNumeroDocumento(), nuevoHash);
+            usuario.setContrasena(nuevoHash);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean esHashBCrypt(String valor) {
+        return valor.startsWith("$2a$") || valor.startsWith("$2b$") || valor.startsWith("$2y$");
     }
 }

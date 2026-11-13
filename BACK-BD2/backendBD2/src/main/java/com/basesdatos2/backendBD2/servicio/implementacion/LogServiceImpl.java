@@ -67,7 +67,9 @@ public class LogServiceImpl implements LogService {
             evento.setDescripcion(descripcion);
             evento.setDetalle(normalizar(detalle));
 
-            Optional<Usuario> usuario = usuarioRepository.buscarPorDocumento(documentoUsuario);
+            Optional<Usuario> usuario = documentoUsuario != null
+                    ? usuarioRepository.buscarPorDocumento(documentoUsuario)
+                    : Optional.empty();
             evento.setNombreUsuario(usuario.map(Usuario::nombreCompleto).orElse("Desconocido"));
             evento.setRolUsuario(usuario.map(u -> u.getRol().name()).orElse("DESCONOCIDO"));
 
@@ -95,7 +97,8 @@ public class LogServiceImpl implements LogService {
         // Cada cubeta trae varios eventos: se aplanan y se ordenan del mas reciente al mas antiguo.
         return logRepository.buscar(desde, hasta, modulo).stream()
                 .flatMap(cubeta -> cubeta.getEventos().stream().map(e -> aDTO(cubeta, e)))
-                .sorted(Comparator.comparing(LogResponseDTO::getFecha).reversed())
+                .sorted(Comparator.comparing(LogResponseDTO::getFecha,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
     }
 

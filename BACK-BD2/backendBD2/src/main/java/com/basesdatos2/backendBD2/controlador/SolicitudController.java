@@ -26,25 +26,21 @@ public class SolicitudController {
     @PostMapping
     public ResponseEntity<SolicitudResponseDTO> crear(
             @RequestParam Integer documentoArrendatario,
-            @Valid @RequestBody SolicitudRequestDTO dto
-    ) {
-        SolicitudResponseDTO creada =
-                solicitudService.crear(documentoArrendatario, dto);
+            @Valid @RequestBody SolicitudRequestDTO dto) {
+        SolicitudResponseDTO creada = solicitudService.crear(documentoArrendatario, dto);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(creada);
     }
 
     @GetMapping("/mias")
     public List<SolicitudResponseDTO> listarMias(
-            @RequestParam Integer documentoArrendatario
-    ) {
+            @RequestParam Integer documentoArrendatario) {
         return solicitudService.listarMias(documentoArrendatario);
     }
 
     @GetMapping("/recibidas")
     public List<SolicitudResponseDTO> listarRecibidas(
-            @RequestParam Integer documentoArrendador
-    ) {
+            @RequestParam Integer documentoArrendador) {
         return solicitudService.listarRecibidas(documentoArrendador);
     }
 
@@ -52,18 +48,15 @@ public class SolicitudController {
     public ResponseEntity<ContratoResponseDTO> aprobar(
             @PathVariable Integer id,
             @RequestParam Integer documentoArrendador,
-            @Valid @RequestBody AprobarSolicitudRequestDTO dto
-    ) {
+            @Valid @RequestBody AprobarSolicitudRequestDTO dto) {
         return ResponseEntity.ok(
-                solicitudService.aprobar(id, documentoArrendador, dto.deposito())
-        );
+                solicitudService.aprobar(id, documentoArrendador, dto.deposito()));
     }
 
     @PatchMapping("/{id}/rechazar")
     public ResponseEntity<Void> rechazar(
             @PathVariable Integer id,
-            @RequestParam Integer documentoArrendador
-    ) {
+            @RequestParam Integer documentoArrendador) {
         solicitudService.rechazar(id, documentoArrendador);
         return ResponseEntity.noContent().build();
     }
@@ -71,8 +64,7 @@ public class SolicitudController {
     @PatchMapping("/{id}/cancelar")
     public ResponseEntity<Void> cancelar(
             @PathVariable Integer id,
-            @RequestParam Integer documentoArrendatario
-    ) {
+            @RequestParam Integer documentoArrendatario) {
         solicitudService.cancelar(id, documentoArrendatario);
         return ResponseEntity.noContent().build();
     }

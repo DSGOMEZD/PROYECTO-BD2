@@ -64,6 +64,20 @@ public class UsuarioRepository {
         return cantidad != null && cantidad > 0;
     }
 
+    public void actualizarContrasena(Integer numeroDocumento, String contrasenaHash) {
+        jdbcTemplate.update(
+                "UPDATE USUARIO SET `Contraseña` = ? WHERE Numero_documento = ?",
+                contrasenaHash, numeroDocumento
+        );
+    }
+
+    public List<Usuario> listarConContrasenaSinHashear() {
+        return jdbcTemplate.query(
+                SQL_BASE + "WHERE `Contraseña` NOT LIKE '$2a$%' AND `Contraseña` NOT LIKE '$2b$%' AND `Contraseña` NOT LIKE '$2y$%'",
+                this::mapear
+        );
+    }
+
     private Usuario mapear(ResultSet rs, int fila) throws SQLException {
         Usuario usuario = Usuario.segunRol(Rol.valueOf(rs.getString("Rol_usuario").trim()));
         usuario.setTipoDocumento(

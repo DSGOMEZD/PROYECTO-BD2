@@ -24,26 +24,35 @@ public class LogRepository {
     private static final Logger log = LoggerFactory.getLogger(LogRepository.class);
 
     private final MongoTemplate mongoTemplate;
+    private final LogBucketRepository logBucketRepository;
     private final int eventosPorBucket;
 
     public LogRepository(MongoTemplate mongoTemplate,
+                         LogBucketRepository logBucketRepository,
                          @Value("${app.logs.eventos-por-bucket:50}") int eventosPorBucket) {
         this.mongoTemplate = mongoTemplate;
+        this.logBucketRepository = logBucketRepository;
         this.eventosPorBucket = eventosPorBucket;
     }
 
     // Indices: el primero sirve para encontrar la cubeta abierta al insertar,
     // el segundo para las consultas del admin por rango de fechas.
+    // Corre en segundo plano (@Async) para no bloquear el arranque de Spring Boot.
+    @Async
     public void crearIndices() {
-        var indices = mongoTemplate.indexOps(LogBucket.class);
-        indices.createIndex(new Index()
-                .on("modulo", Sort.Direction.ASC)
-                .on("dia", Sort.Direction.ASC)
-                .on("cantidad", Sort.Direction.ASC)
-                .named("idx_cubeta_abierta"));
-        indices.createIndex(new Index()
-                .on("dia", Sort.Direction.DESC)
-                .named("idx_dia"));
+        try {
+            var indices = mongoTemplate.indexOps(LogBucket.class);
+            indices.createIndex(new Index()
+                    .on("modulo", Sort.Direction.ASC)
+                    .on("dia", Sort.Direction.ASC)
+                    .on("cantidad", Sort.Direction.ASC)
+                    .named("idx_cubeta_abierta"));
+            indices.createIndex(new Index()
+                    .on("dia", Sort.Direction.DESC)
+                    .named("idx_dia"));
+        } catch (RuntimeException e) {
+            log.warn("No se pudieron crear los indices de logs en MongoDB: {}", e.getMessage());
+        }
     }
 
     // Agrega el evento a la cubeta del modulo y dia que todavia tenga espacio.
@@ -53,9 +62,14 @@ public class LogRepository {
     // Corre en segundo plano (@Async): si Mongo falla solo queda un warning en consola.
     @Async
     public void guardar(ModuloLog modulo, LogEvento evento) {
+        LocalDate diaEvento = evento.getFecha() != null
+                ? evento.getFecha().toLocalDate()
+                : LocalDate.now();
+
         Query cubetaAbierta = new Query(Criteria.where("modulo").is(modulo)
-                .and("dia").is(evento.getFecha().toLocalDate())
-                .and("cantidad").lt(eventosPorBucket));
+                .and("dia").is(diaEvento)
+                .and("cantidad").lt(eventosPorBucket))
+                .with(Sort.by(Sort.Direction.ASC, "primerEvento"));
 
         Update agregar = new Update()
                 .push("eventos", evento)
@@ -73,10 +87,10 @@ public class LogRepository {
 
     // Cubetas cuyo dia esta en el rango (ambos incluidos), opcionalmente de un modulo.
     public List<LogBucket> buscar(LocalDate desde, LocalDate hasta, ModuloLog modulo) {
-        Criteria criterio = Criteria.where("dia").gte(desde).lte(hasta);
+        Sort orden = Sort.by(Sort.Direction.DESC, "dia", "ultimoEvento");
         if (modulo != null) {
-            criterio = criterio.and("modulo").is(modulo);
+            return logBucketRepository.buscarPorRangoFechasYModulo(desde, hasta, modulo, orden);
         }
-        return mongoTemplate.find(new Query(criterio), LogBucket.class);
+        return logBucketRepository.buscarPorRangoFechas(desde, hasta, orden);
     }
 }
