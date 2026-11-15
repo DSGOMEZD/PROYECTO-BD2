@@ -24,6 +24,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collection;
@@ -37,6 +38,7 @@ import java.util.Optional;
 public class LogServiceImpl implements LogService {
     private static final Logger log = LoggerFactory.getLogger(LogServiceImpl.class);
     private static final long MAX_DIAS_CONSULTA = 366;
+    private static final ZoneId ZONA_COLOMBIA = ZoneId.of("America/Bogota");
 
     private final LogRepository logRepository;
     private final UsuarioRepository usuarioRepository;
@@ -60,7 +62,7 @@ public class LogServiceImpl implements LogService {
         try {
             LogEvento evento = new LogEvento();
             evento.setId(new ObjectId().toHexString());
-            evento.setFecha(LocalDateTime.now().truncatedTo(ChronoUnit.MILLIS));
+            evento.setFecha(LocalDateTime.now(ZONA_COLOMBIA).truncatedTo(ChronoUnit.MILLIS));
             evento.setAccion(accion);
             evento.setDocumentoUsuario(documentoUsuario);
             evento.setReferencia(referencia);

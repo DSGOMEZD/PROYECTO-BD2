@@ -20,14 +20,16 @@ export class AuthService {
 
   registrar(datos: RegistroRequest): Observable<void> {
     const telefono = Number(datos.telefono);
+    const [primerNombre, segundoNombre] = this.separarPrimeroYSegundo(datos.nombre);
+    const [primerApellido, segundoApellido] = this.separarPrimeroYSegundo(datos.apellido);
 
     const body = {
       tipoDocumento: datos.tipoDocumento,
       numeroDocumento: datos.numeroDocumento,
-      primerNombre: datos.nombre.trim(),
-      segundoNombre: '',
-      primerApellido: datos.apellido.trim(),
-      segundoApellido: '',
+      primerNombre,
+      segundoNombre,
+      primerApellido,
+      segundoApellido,
       correo: datos.correo.trim(),
       telefono,
       contrasena: datos.contrasena,
@@ -35,6 +37,17 @@ export class AuthService {
     };
 
     return this.http.post<void>(`${this.apiUrl}/registro`, body);
+  }
+
+  private separarPrimeroYSegundo(texto: string): [string, string | null] {
+    const limpio = (texto ?? '').trim().replace(/\s+/g, ' ');
+    if (!limpio) {
+      return ['', null];
+    }
+    const partes = limpio.split(' ');
+    const primero = partes[0];
+    const segundo = partes.length > 1 ? partes.slice(1).join(' ') : null;
+    return [primero, segundo];
   }
 
   obtenerUsuario(): Usuario | null {

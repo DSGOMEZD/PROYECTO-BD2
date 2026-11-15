@@ -19,6 +19,8 @@ export class EstadoBadgeComponent {
       case 'APROBADA':
       case 'VIGENTE':
       case 'PAGADO':
+      case 'REGISTRADO':
+      case 'SESION':
         return 'ok';
       case 'PENDIENTE':
       case 'MANTENIMIENTO':
@@ -26,6 +28,7 @@ export class EstadoBadgeComponent {
       case 'RECHAZADA':
       case 'VENCIDO':
       case 'VENCIDA':
+      case 'FALLIDO':
         return 'error';
       default:
         return 'neutro'; // CANCELADA, FINALIZADO, ARRENDADA, INACTIVA, etc.

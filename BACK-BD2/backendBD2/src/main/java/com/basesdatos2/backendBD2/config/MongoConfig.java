@@ -16,6 +16,10 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -30,6 +34,48 @@ public class MongoConfig {
     private static final int SONDEO_TAILSCALE_MS = 2000;
     private static final String TAILSCALE_MYSQL_HOST = "100.70.144.4";
     private static final String TAILSCALE_MONGO_HOST = "100.70.143.38";
+
+    @Bean
+    public MongoCustomConversions mongoCustomConversions() {
+        return new MongoCustomConversions(List.of(
+                new LocalDateTimeToDateConverter(),
+                new DateToLocalDateTimeConverter(),
+                new LocalDateToDateConverter(),
+                new DateToLocalDateConverter()
+        ));
+    }
+
+    @WritingConverter
+    private static class LocalDateTimeToDateConverter implements Converter<LocalDateTime, Date> {
+        @Override
+        public Date convert(LocalDateTime source) {
+            return Date.from(source.toInstant(ZoneOffset.UTC));
+        }
+    }
+
+    @ReadingConverter
+    private static class DateToLocalDateTimeConverter implements Converter<Date, LocalDateTime> {
+        @Override
+        public LocalDateTime convert(Date source) {
+            return LocalDateTime.ofInstant(source.toInstant(), ZoneOffset.UTC);
+        }
+    }
+
+    @WritingConverter
+    private static class LocalDateToDateConverter implements Converter<LocalDate, Date> {
+        @Override
+        public Date convert(LocalDate source) {
+            return Date.from(source.atStartOfDay().toInstant(ZoneOffset.UTC));
+        }
+    }
+
+    @ReadingConverter
+    private static class DateToLocalDateConverter implements Converter<Date, LocalDate> {
+        @Override
+        public LocalDate convert(Date source) {
+            return LocalDate.ofInstant(source.toInstant(), ZoneOffset.UTC);
+        }
+    }
 
     @Bean
     public MongoClientSettingsBuilderCustomizer mongoClientTimeoutCustomizer(
