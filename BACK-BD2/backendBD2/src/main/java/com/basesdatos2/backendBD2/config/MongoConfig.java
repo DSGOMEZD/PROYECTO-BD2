@@ -20,8 +20,8 @@ import java.net.URI;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-// Configuracion de persistencia poliglota (MySQL en MV1 + MongoDB 7.0 con autenticacion en MV2 via Tailscale)
-// con connectTimeout de 10 segundos para tolerar la latencia de la VPN Tailscale en los equipos remotos.
+// Configuracion de persistencia poliglota (MySQL en MV1 + MongoDB 7.0 con autenticacion en MV2)
+// con connectTimeout de 10 segundos y resolucion automatica entre 127.0.0.1 (NAT local) y Tailscale.
 @Configuration
 @EnableMongoRepositories(basePackages = "com.basesdatos2.backendBD2.repositorio")
 public class MongoConfig {
@@ -30,10 +30,12 @@ public class MongoConfig {
     private static final int READ_TIMEOUT_SEGUNDOS = 15;
     private static final int SONDEO_LOCAL_MS = 250;
     private static final int SONDEO_TAILSCALE_MS = 2000;
+    private static final String TAILSCALE_MYSQL_HOST = "100.70.144.4";
+    private static final String TAILSCALE_MONGO_HOST = "100.70.143.38";
 
     @Bean
     public MongoClientSettingsBuilderCustomizer mongoClientTimeoutCustomizer(
-            @Value("${spring.mongodb.uri:${spring.data.mongodb.uri:mongodb://motogo_logger:MotoLog2026*@100.70.143.38:27017/alquiler_motos_logs?authSource=admin}}") String mongoUri) {
+            @Value("${spring.mongodb.uri:${spring.data.mongodb.uri:mongodb://motogo_logger:MotoLog2026*@127.0.0.1:27017/alquiler_motos_logs?authSource=admin}}") String mongoUri) {
         return builder -> {
             ConnectionString connString = new ConnectionString(mongoUri);
             builder.applyConnectionString(connString)
@@ -46,18 +48,21 @@ public class MongoConfig {
                         List<String> hosts = connString.getHosts();
                         if (!hosts.isEmpty()) {
                             ServerAddress principal = parsearHost(hosts.get(0), 27017);
-                            // Si el equipo anfitrion tiene el tunel NAT local (127.0.0.1) activo y no enruta la IP Tailscale,
-                            // redirige el socket conservando las credenciales (motogo_logger / authSource=admin).
-                            // En los equipos de los companeros (sin VM local en 127.0.0.1), el chequeo local toma < 2ms
-                            // y mantiene intacta la IP de Tailscale (100.70.143.38:27017).
-                            if (!"127.0.0.1".equals(principal.getHost())
-                                    && !"localhost".equalsIgnoreCase(principal.getHost())
-                                    && esAlcanzable("127.0.0.1", principal.getPort(), SONDEO_LOCAL_MS)
-                                    && !esAlcanzable(principal.getHost(), principal.getPort(), SONDEO_TAILSCALE_MS)) {
-                                log.info("IP Tailscale MongoDB ({}:{}) no alcanzable directamente desde este host; "
-                                                + "usando tunel local NAT (127.0.0.1:{}) hacia motogo-mongo (MV2) con authSource=admin.",
-                                        principal.getHost(), principal.getPort(), principal.getPort());
-                                cluster.hosts(List.of(new ServerAddress("127.0.0.1", principal.getPort())));
+                            String hostConfigurado = principal.getHost();
+                            int port = principal.getPort();
+
+                            if (esLocal(hostConfigurado)) {
+                                if (!esAlcanzable("127.0.0.1", port, SONDEO_LOCAL_MS)) {
+                                    log.info("Puerto local MongoDB (127.0.0.1:{}) no disponible; "
+                                            + "usando IP Tailscale ({}:{}) hacia MV2.", port, TAILSCALE_MONGO_HOST, port);
+                                    cluster.hosts(List.of(new ServerAddress(TAILSCALE_MONGO_HOST, port)));
+                                }
+                            } else if (esAlcanzable("127.0.0.1", port, SONDEO_LOCAL_MS)
+                                    && !esAlcanzable(hostConfigurado, port, SONDEO_TAILSCALE_MS)) {
+                                log.info("IP Tailscale MongoDB ({}:{}) no alcanzable desde el host; "
+                                        + "usando tunel local NAT (127.0.0.1:{}) hacia motogo-mongo (MV2).",
+                                        hostConfigurado, port, port);
+                                cluster.hosts(List.of(new ServerAddress("127.0.0.1", port)));
                             }
                         }
                     });
@@ -77,17 +82,24 @@ public class MongoConfig {
                         URI uri = URI.create(hikari.getJdbcUrl().substring("jdbc:".length()));
                         String host = uri.getHost();
                         int port = uri.getPort() > 0 ? uri.getPort() : 3306;
-                        if (host != null
-                                && !"127.0.0.1".equals(host)
-                                && !"localhost".equalsIgnoreCase(host)
-                                && esAlcanzable("127.0.0.1", port, SONDEO_LOCAL_MS)
-                                && !esAlcanzable(host, port, SONDEO_TAILSCALE_MS)) {
-                            String urlLocal = hikari.getJdbcUrl().replaceFirst(
-                                    "jdbc:mysql://" + host + "(:" + port + ")?",
-                                    "jdbc:mysql://127.0.0.1:" + port);
-                            log.info("IP Tailscale MySQL ({}:{}) no alcanzable directamente desde este host; "
-                                    + "usando tunel local NAT (127.0.0.1:{}) hacia MV1.", host, port, port);
-                            hikari.setJdbcUrl(urlLocal);
+                        if (host != null) {
+                            if (esLocal(host) && !esAlcanzable("127.0.0.1", port, SONDEO_LOCAL_MS)) {
+                                String urlTailscale = hikari.getJdbcUrl().replaceFirst(
+                                        "jdbc:mysql://" + host + "(:" + port + ")?",
+                                        "jdbc:mysql://" + TAILSCALE_MYSQL_HOST + ":" + port);
+                                log.info("Puerto local MySQL (127.0.0.1:{}) no disponible; "
+                                        + "usando IP Tailscale ({}:{}) hacia MV1.", port, TAILSCALE_MYSQL_HOST, port);
+                                hikari.setJdbcUrl(urlTailscale);
+                            } else if (!esLocal(host)
+                                    && esAlcanzable("127.0.0.1", port, SONDEO_LOCAL_MS)
+                                    && !esAlcanzable(host, port, SONDEO_TAILSCALE_MS)) {
+                                String urlLocal = hikari.getJdbcUrl().replaceFirst(
+                                        "jdbc:mysql://" + host + "(:" + port + ")?",
+                                        "jdbc:mysql://127.0.0.1:" + port);
+                                log.info("IP Tailscale MySQL ({}:{}) no alcanzable desde el host; "
+                                        + "usando tunel local NAT (127.0.0.1:{}) hacia MV1.", host, port, port);
+                                hikari.setJdbcUrl(urlLocal);
+                            }
                         }
                     } catch (RuntimeException ignored) {
                         // Si el formato de la URL no es estandar, se mantiene intacta.
@@ -96,6 +108,10 @@ public class MongoConfig {
                 return bean;
             }
         };
+    }
+
+    private static boolean esLocal(String host) {
+        return "127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host);
     }
 
     private static ServerAddress parsearHost(String hostPort, int puertoPorDefecto) {
