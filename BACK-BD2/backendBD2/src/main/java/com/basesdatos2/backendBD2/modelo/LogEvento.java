@@ -1,7 +1,5 @@
 package com.basesdatos2.backendBD2.modelo;
 
-import org.springframework.data.mongodb.core.mapping.Field;
-
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -10,41 +8,29 @@ import java.util.Map;
 // "eventos" de un LogBucket (patron bucket).
 public class LogEvento {
 
-    @Field("id")
     private String id;                    // ObjectId en hexadecimal, generado por el back
 
-    @Field("fecha")
     private LocalDateTime fecha;
 
-    @Field("accion")
     private String accion;                // PUBLICADA, CREADA, APROBADA, GENERADO, PAGADO...
 
-    @Field("documentoUsuario")
     private Integer documentoUsuario;     // quien hizo la accion
 
-    @Field("nombreUsuario")
     private String nombreUsuario;
 
-    @Field("rolUsuario")
     private String rolUsuario;
 
-    @Field("referencia")
     private String referencia;            // placa, "Solicitud #5", "Contrato #3", "Pago #2"
 
-    @Field("descripcion")
     private String descripcion;           // texto legible para el admin
 
-    @Field("detalle")
     private Map<String, Object> detalle = new LinkedHashMap<>();  // snapshot de los datos
 
     // Datos de la peticion HTTP que origino el evento
-    @Field("ip")
     private String ip;
 
-    @Field("userAgent")
     private String userAgent;
 
-    @Field("endpoint")
     private String endpoint;              // "PATCH /api/pagos/2/pagar"
 
     public LogEvento() {}

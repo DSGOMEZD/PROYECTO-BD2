@@ -5,8 +5,9 @@ import com.basesdatos2.backendBD2.modelo.emun.Rol;
 import com.basesdatos2.backendBD2.modelo.emun.TipoDocumento;
 import java.time.LocalDate;
 
-// Tabla USUARIO. Rol_usuario decide la subclase: Administrador, Arrendador o Arrendatario.
-public abstract class Usuario {
+// Tabla USUARIO. El tipo de usuario (ADMIN, ARRENDADOR, ARRENDATARIO) es solo el
+// atributo rol (columna Rol_usuario); no hay subclases, igual que en la base.
+public class Usuario {
 
     private TipoDocumento tipoDocumento;
     private Integer numeroDocumento;
@@ -19,20 +20,9 @@ public abstract class Usuario {
     private LocalDate fechaRegistro;
     private EstadoUsuario estado;
     private String contrasena;   // columna Contraseña (hash)
-    private final Rol rol;       // columna Rol_usuario (la fija cada subclase)
+    private Rol rol;             // columna Rol_usuario
 
-    protected Usuario(Rol rol) {
-        this.rol = rol;
-    }
-
-    // Crea la subclase que corresponde al rol.
-    public static Usuario segunRol(Rol rol) {
-        return switch (rol) {
-            case ADMIN -> new Administrador();
-            case ARRENDADOR -> new Arrendador();
-            case ARRENDATARIO -> new Arrendatario();
-        };
-    }
+    public Usuario() {}
 
     // Primer y segundo nombre juntos (el segundo es opcional).
     public String nombres() {
@@ -87,4 +77,5 @@ public abstract class Usuario {
     public void setContrasena(String contrasena) { this.contrasena = contrasena; }
 
     public Rol getRol() { return rol; }
+    public void setRol(Rol rol) { this.rol = rol; }
 }

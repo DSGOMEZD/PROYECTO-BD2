@@ -35,8 +35,9 @@ public class AuthServiceImpl implements AuthService {
         if (dto.rol() == Rol.ADMIN) {
             throw new NoAutorizadoException("No es posible registrarse como administrador.");
         }
-        Usuario usuario = Usuario.segunRol(dto.rol());
+        Usuario usuario = new Usuario();
         mm.map(dto, usuario);
+        usuario.setRol(dto.rol());
         usuario.setContrasena(passwordEncoder.encode(dto.contrasena()));
         usuarioRepository.registrar(usuario);
     }

@@ -79,7 +79,8 @@ public class UsuarioRepository {
     }
 
     private Usuario mapear(ResultSet rs, int fila) throws SQLException {
-        Usuario usuario = Usuario.segunRol(Rol.valueOf(rs.getString("Rol_usuario").trim()));
+        Usuario usuario = new Usuario();
+        usuario.setRol(Rol.valueOf(rs.getString("Rol_usuario").trim()));
         usuario.setTipoDocumento(
                 TipoDocumento.valueOf(rs.getString("Tipo_documento").trim()));
         usuario.setNumeroDocumento(rs.getInt("Numero_documento"));
