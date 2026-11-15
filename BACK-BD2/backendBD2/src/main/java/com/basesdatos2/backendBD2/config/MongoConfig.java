@@ -11,11 +11,6 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.mongodb.autoconfigure.MongoClientSettingsBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.convert.converter.Converter;
-import org.springframework.data.convert.ReadingConverter;
-import org.springframework.data.convert.WritingConverter;
-import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
-import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -31,7 +26,6 @@ import java.util.concurrent.TimeUnit;
 // Configuracion de persistencia poliglota (MySQL en MV1 + MongoDB 7.0 con autenticacion en MV2)
 // con connectTimeout de 10 segundos y resolucion automatica entre 127.0.0.1 (NAT local) y Tailscale.
 @Configuration
-@EnableMongoRepositories(basePackages = "com.basesdatos2.backendBD2.repositorio")
 public class MongoConfig {
     private static final Logger log = LoggerFactory.getLogger(MongoConfig.class);
     private static final int CONNECT_TIMEOUT_SEGUNDOS = 10;
@@ -85,7 +79,7 @@ public class MongoConfig {
 
     @Bean
     public MongoClientSettingsBuilderCustomizer mongoClientTimeoutCustomizer(
-            @Value("${spring.mongodb.uri:${spring.data.mongodb.uri:mongodb://motogo_logger:MotoLog2026*@127.0.0.1:27017/alquiler_motos_logs?authSource=admin}}") String mongoUri) {
+            @Value("${spring.mongodb.uri:mongodb://motogo_logger:MotoLog2026*@127.0.0.1:27017/alquiler_motos_logs?authSource=admin}") String mongoUri) {
         return builder -> {
             ConnectionString connString = new ConnectionString(mongoUri);
             builder.applyConnectionString(connString)

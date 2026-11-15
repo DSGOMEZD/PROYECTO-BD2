@@ -212,7 +212,8 @@ public class DatosInicialesConfig implements ApplicationRunner {
     }
 
     private Usuario adminInicial() {
-        Usuario admin = Usuario.segunRol(Rol.ADMIN);
+        Usuario admin = new Usuario();
+        admin.setRol(Rol.ADMIN);
         admin.setTipoDocumento(TipoDocumento.CC);
         admin.setNumeroDocumento(documentoAdmin);
         admin.setPrimerNombre("Administrador");
