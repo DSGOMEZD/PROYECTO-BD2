@@ -14,7 +14,7 @@ public abstract class Usuario {
     private String segundoNombre;
     private String primerApellido;
     private String segundoApellido;
-    private Integer telefono;
+    private Long telefono;
     private String correo;
     private LocalDate fechaRegistro;
     private EstadoUsuario estado;
@@ -71,8 +71,8 @@ public abstract class Usuario {
     public String getSegundoApellido() { return segundoApellido; }
     public void setSegundoApellido(String segundoApellido) { this.segundoApellido = segundoApellido; }
 
-    public Integer getTelefono() { return telefono; }
-    public void setTelefono(Integer telefono) { this.telefono = telefono; }
+    public Long getTelefono() { return telefono; }
+    public void setTelefono(Long telefono) { this.telefono = telefono; }
 
     public String getCorreo() { return correo; }
     public void setCorreo(String correo) { this.correo = correo; }

@@ -16,7 +16,7 @@ public record RegistroRequestDTO(
         @NotBlank @Size(max = 50) String primerApellido,
         @Size(max = 50) String segundoApellido,
         @NotBlank @Email @Size(max = 50) String correo,
-        @NotNull @Positive Integer telefono,
-        @NotBlank @Size(min = 8, max = 72) String contrasena,
+        @NotNull @Positive Long telefono,
+        @NotBlank @Size(min = 4, max = 72) String contrasena,
         @NotNull Rol rol
 ) {}

@@ -19,7 +19,7 @@ CREATE TABLE `USUARIO` (
     `Segundo_nombre`   CHAR(50) NULL COMMENT 'Segundo nombre del usuario.',
     `Primer_apellido`  CHAR(50) NOT NULL COMMENT 'Primer apellido del usuario.',
     `Segundo_apellido` CHAR(50) NULL COMMENT 'Segundo apellido del usuario.',
-    `Telefono`         INT NOT NULL COMMENT 'Telefono de contacto del usuario.',
+    `Telefono`         BIGINT NOT NULL COMMENT 'Telefono de contacto del usuario.',
     `Correo`           CHAR(50) NOT NULL COMMENT 'Correo para registro, inicio de sesion y contacto.',
     `Fecha_registro`   DATE NOT NULL COMMENT 'Fecha en la que se registro el usuario.',
     `Estado`           CHAR(20) NOT NULL COMMENT 'Estado en el que se encuentra el perfil del usuario.',

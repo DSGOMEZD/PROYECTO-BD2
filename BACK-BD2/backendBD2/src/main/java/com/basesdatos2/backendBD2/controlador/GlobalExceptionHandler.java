@@ -6,9 +6,11 @@ import com.basesdatos2.backendBD2.modelo.excepcion.*;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +64,21 @@ public class GlobalExceptionHandler {
                 .orElse("Datos inválidos.");
         return ResponseEntity.badRequest().body(new ErrorResponseDTO(45001, mensaje));
     }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponseDTO> formatoInvalido(HttpMessageNotReadableException ex) {
+        log.warn("Formato de datos inválido en la petición: {}", ex.getMessage());
+        return ResponseEntity.badRequest().body(
+                new ErrorResponseDTO(45001, "Revisa los datos numéricos o el formato de los campos ingresados."));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponseDTO> responseStatus(ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode())
+                .body(new ErrorResponseDTO(ex.getStatusCode().value(),
+                        ex.getReason() != null ? ex.getReason() : "Error en la solicitud."));
+    }
+
     @ExceptionHandler(CredencialesInvalidasException.class)
     public ResponseEntity<ErrorResponseDTO> credencialesInvalidas(
             CredencialesInvalidasException ex) {

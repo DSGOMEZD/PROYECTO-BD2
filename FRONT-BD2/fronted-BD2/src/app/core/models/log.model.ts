@@ -1,7 +1,8 @@
 // Módulo de la app que generó el evento
-export type ModuloLog = 'PAGO' | 'MOTO' | 'SOLICITUD' | 'CONTRATO';
+export type ModuloLog = 'USUARIO' | 'PAGO' | 'MOTO' | 'SOLICITUD' | 'CONTRATO';
 
 export const MODULOS_LOG: { valor: ModuloLog; texto: string }[] = [
+  { valor: 'USUARIO', texto: 'Usuarios' },
   { valor: 'PAGO', texto: 'Pagos' },
   { valor: 'MOTO', texto: 'Motos' },
   { valor: 'SOLICITUD', texto: 'Solicitudes' },

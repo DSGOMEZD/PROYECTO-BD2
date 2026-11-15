@@ -612,7 +612,7 @@ CREATE PROCEDURE `sp_registrar_usuario`(
     IN p_segundo_nombre   CHAR(50),
     IN p_primer_apellido  CHAR(50),
     IN p_segundo_apellido CHAR(50),
-    IN p_telefono         INT,
+    IN p_telefono         BIGINT,
     IN p_correo           CHAR(50),
     IN p_contrasena_hash  VARCHAR(255),
     IN p_rol              CHAR(20)

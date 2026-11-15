@@ -16,12 +16,14 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 // Acceso a la coleccion logs_actividad de MongoDB (patron bucket).
 @Repository
 public class LogRepository {
     private static final Logger log = LoggerFactory.getLogger(LogRepository.class);
+    private static final ZoneId ZONA_COLOMBIA = ZoneId.of("America/Bogota");
 
     private final MongoTemplate mongoTemplate;
     private final LogBucketRepository logBucketRepository;
@@ -61,15 +63,14 @@ public class LogRepository {
     // y $inc / $push lo inicializan con cantidad = 1 y el primer evento.
     // Corre en segundo plano (@Async): si Mongo falla solo queda un warning en consola.
     @Async
-    public void guardar(ModuloLog modulo, LogEvento evento) {
+    public synchronized void guardar(ModuloLog modulo, LogEvento evento) {
         LocalDate diaEvento = evento.getFecha() != null
                 ? evento.getFecha().toLocalDate()
-                : LocalDate.now();
+                : LocalDate.now(ZONA_COLOMBIA);
 
         Query cubetaAbierta = new Query(Criteria.where("modulo").is(modulo)
                 .and("dia").is(diaEvento)
-                .and("cantidad").lt(eventosPorBucket))
-                .with(Sort.by(Sort.Direction.ASC, "primerEvento"));
+                .and("cantidad").lt(eventosPorBucket));
 
         Update agregar = new Update()
                 .push("eventos", evento)

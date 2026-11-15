@@ -78,6 +78,63 @@ public class UsuarioRepository {
         );
     }
 
+    public List<Usuario> listarTodos() {
+        return jdbcTemplate.query(SQL_BASE + "ORDER BY Fecha_registro ASC, Numero_documento ASC", this::mapear);
+    }
+
+    public void asegurarEsquemaTelefonoBigInt() {
+        jdbcTemplate.execute("ALTER TABLE USUARIO MODIFY COLUMN Telefono BIGINT NOT NULL COMMENT 'Telefono de contacto del usuario.'");
+        jdbcTemplate.execute("DROP PROCEDURE IF EXISTS sp_registrar_usuario");
+        jdbcTemplate.execute("""
+                CREATE PROCEDURE sp_registrar_usuario(
+                    IN p_tipo_documento CHAR(20),
+                    IN p_numero_documento INT,
+                    IN p_primer_nombre CHAR(50),
+                    IN p_segundo_nombre CHAR(50),
+                    IN p_primer_apellido CHAR(50),
+                    IN p_segundo_apellido CHAR(50),
+                    IN p_telefono BIGINT,
+                    IN p_correo CHAR(50),
+                    IN p_contrasena_hash VARCHAR(255),
+                    IN p_rol CHAR(20)
+                )
+                BEGIN
+                    DECLARE v_rol CHAR(20);
+                    DECLARE e_llave_duplicada CONDITION FOR 1062;
+                    DECLARE EXIT HANDLER FOR e_llave_duplicada
+                    BEGIN
+                        ROLLBACK;
+                        SIGNAL SQLSTATE '45000'
+                            SET MESSAGE_TEXT = 'Ya existe un usuario con ese numero de documento.', MYSQL_ERRNO = 45003;
+                    END;
+                    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+                    BEGIN
+                        ROLLBACK;
+                        RESIGNAL;
+                    END;
+                    SET v_rol = UPPER(TRIM(p_rol));
+                    IF v_rol IS NULL OR v_rol NOT IN ('ADMIN', 'ARRENDADOR', 'ARRENDATARIO') THEN
+                        SIGNAL SQLSTATE '45000'
+                            SET MESSAGE_TEXT = 'Rol invalido (ADMIN, ARRENDADOR, ARRENDATARIO).', MYSQL_ERRNO = 45001;
+                    END IF;
+                    IF p_contrasena_hash IS NULL OR TRIM(p_contrasena_hash) = '' THEN
+                        SIGNAL SQLSTATE '45000'
+                            SET MESSAGE_TEXT = 'La contrasena (hash) es obligatoria.', MYSQL_ERRNO = 45001;
+                    END IF;
+                    START TRANSACTION;
+                    INSERT INTO USUARIO
+                        (Tipo_documento, Numero_documento, Primer_nombre, Segundo_nombre,
+                         Primer_apellido, Segundo_apellido, Telefono, Correo,
+                         Fecha_registro, Estado, `Contraseña`, Rol_usuario)
+                    VALUES
+                        (p_tipo_documento, p_numero_documento, p_primer_nombre, NULLIF(TRIM(p_segundo_nombre), ''),
+                         p_primer_apellido, NULLIF(TRIM(p_segundo_apellido), ''), p_telefono, p_correo,
+                         CURDATE(), 'ACTIVO', p_contrasena_hash, v_rol);
+                    COMMIT;
+                END
+                """);
+    }
+
     private Usuario mapear(ResultSet rs, int fila) throws SQLException {
         Usuario usuario = Usuario.segunRol(Rol.valueOf(rs.getString("Rol_usuario").trim()));
         usuario.setTipoDocumento(
@@ -87,7 +144,7 @@ public class UsuarioRepository {
         usuario.setSegundoNombre(textoOpcional(rs.getString("Segundo_nombre")));
         usuario.setPrimerApellido(rs.getString("Primer_apellido").trim());
         usuario.setSegundoApellido(textoOpcional(rs.getString("Segundo_apellido")));
-        usuario.setTelefono(rs.getInt("Telefono"));
+        usuario.setTelefono(rs.getLong("Telefono"));
         usuario.setCorreo(rs.getString("Correo").trim());
         usuario.setFechaRegistro(rs.getDate("Fecha_registro").toLocalDate());
         usuario.setEstado(

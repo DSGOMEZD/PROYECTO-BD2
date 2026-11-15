@@ -13,14 +13,14 @@ public class UsuarioResponseDTO {
     private String nombre;
     private String apellido;
     private String correo;
-    private Integer telefono;
+    private Long telefono;
     private Rol rol;
     private EstadoUsuario estado;
 
     public UsuarioResponseDTO() {}
 
     public UsuarioResponseDTO(Integer numeroDocumento, TipoDocumento tipoDocumento, String nombre,
-                              String apellido, String correo, Integer telefono, Rol rol,
+                              String apellido, String correo, Long telefono, Rol rol,
                               EstadoUsuario estado) {
         this.numeroDocumento = numeroDocumento;
         this.tipoDocumento = tipoDocumento;
@@ -47,8 +47,8 @@ public class UsuarioResponseDTO {
     public String getCorreo() { return correo; }
     public void setCorreo(String correo) { this.correo = correo; }
 
-    public Integer getTelefono() { return telefono; }
-    public void setTelefono(Integer telefono) { this.telefono = telefono; }
+    public Long getTelefono() { return telefono; }
+    public void setTelefono(Long telefono) { this.telefono = telefono; }
 
     public Rol getRol() { return rol; }
     public void setRol(Rol rol) { this.rol = rol; }
